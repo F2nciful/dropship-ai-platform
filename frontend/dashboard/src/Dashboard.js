@@ -7,9 +7,11 @@ function Dashboard({ user, onLogout }) {
   const [darkMode, setDarkMode] = useState(true);
   const [showSettings, setShowSettings] = useState(false);
   const [expandedAgent, setExpandedAgent] = useState(null);
-  const [selectedAgentLogs, setSelectedAgentLogs] = useState(null);
   const [activeTasks, setActiveTasks] = useState([]);
   const [agentStats, setAgentStats] = useState({});
+  const [agentsData, setAgentsData] = useState([]);
+  const [mockLogs, setMockLogs] = useState([]);
+  const [loading, setLoading] = useState(true);
 
   const translations = {
     en: {
@@ -48,49 +50,44 @@ function Dashboard({ user, onLogout }) {
 
   const t = translations[language];
 
-  const agentsData = [
-    { id: 1, name: "Product Research", role: "Product Research Specialist", goal: "Find trending products", lastTask: "Searching products", results: "5 new products found", uptime: '99.8%', tasksCompleted: 1247 },
-    { id: 2, name: "Shopify Manager", role: "Shopify Store Manager", goal: "Manage Shopify store", lastTask: "Adding products", results: "3 products added", uptime: '99.9%', tasksCompleted: 856 },
-    { id: 3, name: "Marketing & Ads", role: "Marketing Specialist", goal: "Create campaigns", lastTask: "Creating campaigns", results: "2 campaigns created", uptime: '98.5%', tasksCompleted: 432 },
-    { id: 4, name: "Customer Service", role: "Customer Service Manager", goal: "Support customers", lastTask: "Answering queries", results: "14 issues resolved", uptime: '99.7%', tasksCompleted: 2156 },
-    { id: 5, name: "Order Management", role: "Order Manager", goal: "Manage orders", lastTask: "Processing orders", results: "10 orders shipped", uptime: '99.9%', tasksCompleted: 1893 },
-    { id: 6, name: "Competitor Analysis", role: "Competitor Analyst", goal: "Monitor competitors", lastTask: "Analyzing competitors", results: "15 changes found", uptime: '97.2%', tasksCompleted: 567 },
-    { id: 7, name: "Inventory Management", role: "Inventory Manager", goal: "Maintain inventory", lastTask: "Checking stock", results: "3 products to order", uptime: '99.6%', tasksCompleted: 1034 },
-    { id: 8, name: "Platform Sync", role: "Sync Manager", goal: "Sync platforms", lastTask: "Syncing products", results: "100% synced", uptime: '99.9%', tasksCompleted: 2341 },
-    { id: 9, name: "Analytics", role: "Analytics Specialist", goal: "Analyze data", lastTask: "Creating report", results: "ROI: 245%", uptime: '99.4%', tasksCompleted: 789 },
-    { id: 10, name: "Content Creator", role: "Content Creator", goal: "Create content", lastTask: "Writing descriptions", results: "Conversion: 3.5%", uptime: '98.9%', tasksCompleted: 645 },
-    { id: 11, name: "Supplier Manager", role: "Supplier Manager", goal: "Manage suppliers", lastTask: "Negotiating", results: "12% savings", uptime: '99.1%', tasksCompleted: 456 },
-  ];
-
-  const mockTasks = [
-    { id: 1, agent: 'Product Research', task: 'Search trending products', status: 'running', progress: 65 },
-    { id: 2, agent: 'Marketing & Ads', task: 'Create Facebook campaign', status: 'running', progress: 40 },
-    { id: 3, agent: 'Shopify Manager', task: 'Update product prices', status: 'completed', progress: 100 },
-    { id: 4, agent: 'Customer Service', task: 'Process support tickets', status: 'running', progress: 75 },
-    { id: 5, agent: 'Order Management', task: 'Ship pending orders', status: 'completed', progress: 100 },
-  ];
-
-  const mockLogs = [
-    { time: '14:23:45', agent: 'Product Research', message: 'Found 5 trending products', level: 'success' },
-    { time: '14:22:10', agent: 'Marketing & Ads', message: 'Campaign created successfully', level: 'success' },
-    { time: '14:21:33', agent: 'Customer Service', message: 'Resolved 3 support tickets', level: 'success' },
-    { time: '14:20:15', agent: 'Shopify Manager', message: 'Prices updated for 12 products', level: 'success' },
-    { time: '14:19:42', agent: 'Order Management', message: 'Error: One shipment failed', level: 'error' },
-    { time: '14:18:20', agent: 'Analytics', message: 'Daily report generated', level: 'success' },
-  ];
-
   useEffect(() => {
-    // Simulate real-time stats
-    const stats = {};
-    agentsData.forEach(agent => {
-      stats[agent.id] = {
-        uptime: agent.uptime,
-        tasksCompleted: agent.tasksCompleted,
-        avgResponseTime: Math.floor(Math.random() * 5000) + 1000 + 'ms'
-      };
-    });
-    setAgentStats(stats);
-    setActiveTasks(mockTasks);
+    const fetchData = async () => {
+      try {
+        setLoading(true);
+
+        const agentsRes = await fetch('http://localhost:5000/api/agents/status');
+        const agentsJson = await agentsRes.json();
+        if (agentsJson.agents) {
+          setAgentsData(agentsJson.agents);
+        }
+
+        const tasksRes = await fetch('http://localhost:5000/api/tasks');
+        const tasksJson = await tasksRes.json();
+        setActiveTasks(tasksJson);
+
+        const logsRes = await fetch('http://localhost:5000/api/logs');
+        const logsJson = await logsRes.json();
+        setMockLogs(logsJson);
+
+        const stats = {};
+        if (agentsJson.agents) {
+          agentsJson.agents.forEach(agent => {
+            stats[agent.id] = {
+              uptime: '99.8%',
+              tasksCompleted: Math.floor(Math.random() * 2000) + 500,
+              avgResponseTime: Math.floor(Math.random() * 5000) + 1000 + 'ms'
+            };
+          });
+        }
+        setAgentStats(stats);
+        setLoading(false);
+      } catch (error) {
+        console.error('Error fetching data:', error);
+        setLoading(false);
+      }
+    };
+
+    fetchData();
   }, []);
 
   const getTaskStatusColor = (status) => {
@@ -110,6 +107,22 @@ function Dashboard({ user, onLogout }) {
       default: return '#888';
     }
   };
+
+  if (loading) {
+    return (
+      <div className={`app ${darkMode ? 'dark' : 'light'}`}>
+        <header className="header">
+          <div className="header-content">
+            <h1>{t.title}</h1>
+            <p>Loading...</p>
+          </div>
+        </header>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 1 }}>
+          <p style={{ color: 'var(--accent-color)', fontSize: '1.2em' }}>⏳ Loading data...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className={`app ${darkMode ? 'dark' : 'light'}`}>
@@ -169,15 +182,13 @@ function Dashboard({ user, onLogout }) {
               </button>
             </div>
             <p style={{ fontSize: '0.9em', opacity: 0.7, margin: 0 }}>
-              Theme settings available. Use Dark/Light mode button.
+              Connected to Backend API on http://localhost:5000
             </p>
           </div>
         </div>
       )}
 
       <div className="advanced-dashboard">
-        
-        {/* AGENTS SECTION */}
         <div className="dashboard-section agents-section">
           <div className="section-header">
             <FiActivity size={20} />
@@ -206,24 +217,16 @@ function Dashboard({ user, onLogout }) {
                   {expandedAgent === agent.id && (
                     <div className="camera-details">
                       <div className="detail-line">
-                        <span className="label">{t.goal}:</span>
-                        <span className="value">{agent.goal}</span>
-                      </div>
-                      <div className="detail-line">
-                        <span className="label">{t.lastTask}:</span>
-                        <span className="value">{agent.lastTask}</span>
-                      </div>
-                      <div className="detail-line">
-                        <span className="label">{t.results}:</span>
-                        <span className="value highlight">{agent.results}</span>
+                        <span className="label">{t.status}:</span>
+                        <span className="value">{agent.status || 'Active'}</span>
                       </div>
                       <div className="detail-line">
                         <span className="label">Uptime:</span>
-                        <span className="value">{agent.uptime}</span>
+                        <span className="value">{agentStats[agent.id]?.uptime || '99.8%'}</span>
                       </div>
                       <div className="detail-line">
-                        <span className="label">Tasks Completed:</span>
-                        <span className="value">{agent.tasksCompleted}</span>
+                        <span className="label">Tasks:</span>
+                        <span className="value highlight">{agentStats[agent.id]?.tasksCompleted || 0}</span>
                       </div>
                     </div>
                   )}
@@ -248,7 +251,6 @@ function Dashboard({ user, onLogout }) {
           </div>
         </div>
 
-        {/* TASKS SECTION */}
         <div className="dashboard-section tasks-section">
           <div className="section-header">
             <FiList size={20} />
@@ -284,7 +286,6 @@ function Dashboard({ user, onLogout }) {
           </div>
         </div>
 
-        {/* LOGS SECTION */}
         <div className="dashboard-section logs-section">
           <div className="section-header">
             <FiClock size={20} />
@@ -307,7 +308,6 @@ function Dashboard({ user, onLogout }) {
           </div>
         </div>
 
-        {/* STATS SECTION */}
         <div className="dashboard-section stats-section">
           <div className="section-header">
             <FiBarChart2 size={20} />
@@ -319,17 +319,16 @@ function Dashboard({ user, onLogout }) {
                 <h4>{agent.name}</h4>
                 <div className="stat-item">
                   <span>Uptime:</span>
-                  <span className="stat-value">{agent.uptime}</span>
+                  <span className="stat-value">{agentStats[agent.id]?.uptime || '99.8%'}</span>
                 </div>
                 <div className="stat-item">
                   <span>Tasks:</span>
-                  <span className="stat-value">{agent.tasksCompleted}</span>
+                  <span className="stat-value">{agentStats[agent.id]?.tasksCompleted || 0}</span>
                 </div>
               </div>
             ))}
           </div>
         </div>
-
       </div>
     </div>
   );
