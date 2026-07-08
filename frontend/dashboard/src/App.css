@@ -202,14 +202,61 @@ body {
   transform: rotate(90deg);
 }
 
-.cameras-container {
+/* ADVANCED DASHBOARD LAYOUT */
+.advanced-dashboard {
   flex: 1;
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 15px;
+  grid-template-columns: 2fr 1fr;
+  gap: 20px;
   padding: 20px;
   overflow-y: auto;
   background: var(--bg-color);
+}
+
+.dashboard-section {
+  background: var(--secondary-color);
+  border: 2px solid var(--border-color);
+  border-radius: 8px;
+  padding: 20px;
+  box-shadow: 0 0 10px rgba(0, 255, 65, 0.1);
+  overflow-y: auto;
+}
+
+.dashboard-section:hover {
+  border-color: var(--accent-color);
+  box-shadow: 0 0 20px rgba(0, 255, 65, 0.2);
+}
+
+.section-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 20px;
+  padding-bottom: 15px;
+  border-bottom: 2px solid var(--border-color);
+}
+
+.section-header h2 {
+  color: var(--accent-color);
+  font-size: 1.3em;
+  margin: 0;
+  text-shadow: 0 0 8px rgba(0, 255, 65, 0.2);
+}
+
+.section-header svg {
+  color: var(--accent-color);
+}
+
+/* AGENTS SECTION */
+.agents-section {
+  grid-column: 1 / 2;
+  grid-row: 1 / 4;
+}
+
+.cameras-container {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 15px;
 }
 
 .camera-card {
@@ -390,24 +437,221 @@ body {
   transform: scale(1.2);
 }
 
-.cameras-container::-webkit-scrollbar {
+/* TASKS SECTION */
+.tasks-section {
+  grid-column: 2 / 3;
+  grid-row: 1 / 2;
+}
+
+.tasks-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.task-item {
+  padding: 12px;
+  background: rgba(0, 255, 65, 0.05);
+  border: 1px solid var(--border-color);
+  border-left: 4px solid var(--accent-color);
+  border-radius: 6px;
+  transition: all 0.2s;
+}
+
+.task-item:hover {
+  background: rgba(0, 255, 65, 0.1);
+  border-left-color: var(--accent-color);
+}
+
+.task-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.task-name {
+  color: var(--accent-color);
+  font-weight: bold;
+  font-size: 0.9em;
+}
+
+.task-status {
+  font-size: 0.75em;
+  font-weight: bold;
+  text-transform: uppercase;
+}
+
+.task-description {
+  color: var(--primary-color);
+  opacity: 0.7;
+  font-size: 0.85em;
+  margin: 0 0 10px 0;
+}
+
+.progress-bar {
+  height: 6px;
+  background: var(--border-color);
+  border-radius: 3px;
+  overflow: hidden;
+  margin-bottom: 5px;
+}
+
+.progress-fill {
+  height: 100%;
+  transition: width 0.3s;
+}
+
+.progress-text {
+  color: var(--primary-color);
+  font-size: 0.75em;
+  opacity: 0.6;
+}
+
+/* LOGS SECTION */
+.logs-section {
+  grid-column: 2 / 3;
+  grid-row: 2 / 3;
+}
+
+.logs-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 0.85em;
+  font-family: 'Courier New', monospace;
+}
+
+.log-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px;
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 4px;
+  border-left: 2px solid var(--accent-color);
+  transition: all 0.2s;
+}
+
+.log-item:hover {
+  background: rgba(0, 255, 65, 0.05);
+}
+
+.log-level {
+  font-size: 1.2em;
+}
+
+.log-time {
+  color: var(--accent-color);
+  font-weight: bold;
+  min-width: 70px;
+}
+
+.log-agent {
+  color: var(--primary-color);
+  opacity: 0.8;
+  min-width: 100px;
+}
+
+.log-message {
+  color: var(--primary-color);
+  opacity: 0.6;
+  flex: 1;
+}
+
+/* STATS SECTION */
+.stats-section {
+  grid-column: 2 / 3;
+  grid-row: 3 / 4;
+}
+
+.stats-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 12px;
+}
+
+.stat-card {
+  padding: 12px;
+  background: rgba(0, 255, 65, 0.05);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  transition: all 0.2s;
+}
+
+.stat-card:hover {
+  border-color: var(--accent-color);
+  background: rgba(0, 255, 65, 0.1);
+}
+
+.stat-card h4 {
+  color: var(--accent-color);
+  margin: 0 0 8px 0;
+  font-size: 0.9em;
+}
+
+.stat-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.8em;
+  margin: 4px 0;
+  color: var(--primary-color);
+}
+
+.stat-value {
+  color: var(--accent-color);
+  font-weight: bold;
+}
+
+/* SCROLLBAR */
+.advanced-dashboard::-webkit-scrollbar,
+.dashboard-section::-webkit-scrollbar {
   width: 10px;
 }
 
-.cameras-container::-webkit-scrollbar-track {
+.advanced-dashboard::-webkit-scrollbar-track,
+.dashboard-section::-webkit-scrollbar-track {
   background: var(--bg-color);
 }
 
-.cameras-container::-webkit-scrollbar-thumb {
+.advanced-dashboard::-webkit-scrollbar-thumb,
+.dashboard-section::-webkit-scrollbar-thumb {
   background: var(--border-color);
   border-radius: 5px;
 }
 
-.cameras-container::-webkit-scrollbar-thumb:hover {
+.advanced-dashboard::-webkit-scrollbar-thumb:hover,
+.dashboard-section::-webkit-scrollbar-thumb:hover {
   background: var(--accent-color);
 }
 
-@media (max-width: 1200px) {
+/* RESPONSIVE */
+@media (max-width: 1400px) {
+  .advanced-dashboard {
+    grid-template-columns: 1fr;
+  }
+
+  .agents-section {
+    grid-column: 1 / 2;
+    grid-row: 1 / 2;
+  }
+
+  .tasks-section {
+    grid-column: 1 / 2;
+    grid-row: 2 / 3;
+  }
+
+  .logs-section {
+    grid-column: 1 / 2;
+    grid-row: 3 / 4;
+  }
+
+  .stats-section {
+    grid-column: 1 / 2;
+    grid-row: 4 / 5;
+  }
+
   .cameras-container {
     grid-template-columns: repeat(2, 1fr);
   }
