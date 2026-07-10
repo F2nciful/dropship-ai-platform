@@ -1,0 +1,536 @@
+/* ═══════════════════════════════════════════════════════════════════ */
+/*                         THEME VARIABLES                              */
+/* ═══════════════════════════════════════════════════════════════════ */
+
+:root {
+  /* ──────────────────── PRIMARY COLORS ──────────────────── */
+  --primary-color: #6C5CE7;        /* البنفسجي الأساسي */
+  --primary-hover: #5F3DC4;        /* بنفسجي غامق عند التحويم */
+  --primary-light: #A29BFE;        /* بنفسجي فاتح */
+  --primary-lighter: #DFE6E9;      /* بنفسجي فاتح جداً */
+
+  /* ──────────────────── SECONDARY COLORS ──────────────────── */
+  --secondary-color: #00B894;      /* أخضر */
+  --secondary-hover: #00956D;      /* أخضر غامق */
+  --secondary-light: #55EFC4;      /* أخضر فاتح */
+
+  /* ──────────────────── STATUS COLORS ──────────────────── */
+  --success: #00B894;              /* أخضر - نجاح */
+  --warning: #FDCB6E;              /* أصفر - تحذير */
+  --danger: #FF6B6B;               /* أحمر - خطر/خطأ */
+  --info: #74B9FF;                 /* أزرق - معلومات */
+
+  /* ──────────────────── DARK MODE (الوضع الليلي) ──────────────────── */
+  --dark-bg-primary: #0F0F1E;      /* الخلفية الرئيسية - أسود عميق */
+  --dark-bg-secondary: #1A1A2E;    /* خلفية ثانوية */
+  --dark-bg-tertiary: #2A2A3E;     /* خلفية ثالثة */
+  --dark-text-primary: #FFFFFF;    /* النص الرئيسي - أبيض */
+  --dark-text-secondary: #B0B0C0;  /* النص الثانوي - رمادي فاتح */
+  --dark-border: #3A3A4E;          /* الحدود */
+  --dark-shadow: rgba(0, 0, 0, 0.3);
+  --dark-card-bg: #16213E;         /* خلفية البطاقات */
+
+  /* ──────────────────── LIGHT MODE (الوضع النهاري) ──────────────────── */
+  --light-bg-primary: #FFFFFF;     /* الخلفية الرئيسية - أبيض */
+  --light-bg-secondary: #F8F9FA;   /* خلفية ثانوية */
+  --light-bg-tertiary: #EEEFF4;    /* خلفية ثالثة */
+  --light-text-primary: #2D3436;   /* النص الرئيسي - أسود */
+  --light-text-secondary: #636E72; /* النص الثانوي - رمادي */
+  --light-border: #DDD;            /* الحدود */
+  --light-shadow: rgba(0, 0, 0, 0.08);
+  --light-card-bg: #FFFFFF;        /* خلفية البطاقات */
+
+  /* ──────────────────── TYPOGRAPHY (الخطوط) ──────────────────── */
+  --font-family: 'Segoe UI', 'Tahoma', 'Geneva', 'Verdana', sans-serif;
+  --font-family-mono: 'Courier New', monospace;
+
+  --font-size-xs: 12px;
+  --font-size-sm: 14px;
+  --font-size-base: 16px;
+  --font-size-lg: 18px;
+  --font-size-xl: 20px;
+  --font-size-2xl: 24px;
+  --font-size-3xl: 32px;
+
+  --font-weight-light: 300;
+  --font-weight-normal: 400;
+  --font-weight-medium: 500;
+  --font-weight-semibold: 600;
+  --font-weight-bold: 700;
+  --font-weight-extrabold: 800;
+
+  --line-height-tight: 1.2;
+  --line-height-normal: 1.5;
+  --line-height-relaxed: 1.8;
+
+  /* ──────────────────── SPACING (المسافات) ──────────────────── */
+  --spacing-xs: 4px;
+  --spacing-sm: 8px;
+  --spacing-md: 16px;
+  --spacing-lg: 24px;
+  --spacing-xl: 32px;
+  --spacing-2xl: 48px;
+  --spacing-3xl: 64px;
+
+  /* ──────────────────── BORDER & RADIUS ──────────────────── */
+  --border-radius-sm: 4px;
+  --border-radius-md: 8px;
+  --border-radius-lg: 12px;
+  --border-radius-xl: 16px;
+  --border-radius-full: 9999px;
+
+  --border-width-1: 1px;
+  --border-width-2: 2px;
+  --border-width-3: 3px;
+
+  /* ──────────────────── TRANSITIONS (الانتقالات) ──────────────────── */
+  --transition-fast: 150ms ease-in-out;
+  --transition-normal: 300ms ease-in-out;
+  --transition-slow: 500ms ease-in-out;
+
+  /* ──────────────────── SHADOWS (الظلال) ──────────────────── */
+  --shadow-sm: 0 1px 2px var(--light-shadow);
+  --shadow-md: 0 4px 6px var(--light-shadow);
+  --shadow-lg: 0 10px 15px var(--light-shadow);
+  --shadow-xl: 0 20px 25px var(--light-shadow);
+
+  /* ──────────────────── Z-INDEX ──────────────────── */
+  --z-dropdown: 100;
+  --z-sticky: 200;
+  --z-fixed: 300;
+  --z-modal-backdrop: 400;
+  --z-modal: 500;
+  --z-tooltip: 600;
+  --z-notification: 700;
+}
+
+/* ═══════════════════════════════════════════════════════════════════ */
+/*                      DARK MODE (الوضع الليلي)                       */
+/* ═══════════════════════════════════════════════════════════════════ */
+
+body.dark-mode,
+[data-theme="dark"] {
+  --bg-primary: var(--dark-bg-primary);
+  --bg-secondary: var(--dark-bg-secondary);
+  --bg-tertiary: var(--dark-bg-tertiary);
+  --text-primary: var(--dark-text-primary);
+  --text-secondary: var(--dark-text-secondary);
+  --border-color: var(--dark-border);
+  --shadow: var(--dark-shadow);
+  --card-bg: var(--dark-card-bg);
+
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+}
+
+/* ═══════════════════════════════════════════════════════════════════ */
+/*                      LIGHT MODE (الوضع النهاري)                     */
+/* ═══════════════════════════════════════════════════════════════════ */
+
+body.light-mode,
+[data-theme="light"] {
+  --bg-primary: var(--light-bg-primary);
+  --bg-secondary: var(--light-bg-secondary);
+  --bg-tertiary: var(--light-bg-tertiary);
+  --text-primary: var(--light-text-primary);
+  --text-secondary: var(--light-text-secondary);
+  --border-color: var(--light-border);
+  --shadow: var(--light-shadow);
+  --card-bg: var(--light-card-bg);
+
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+}
+
+/* ═══════════════════════════════════════════════════════════════════ */
+/*                       DEFAULT (Light Mode)                           */
+/* ═══════════════════════════════════════════════════════════════════ */
+
+body {
+  --bg-primary: var(--light-bg-primary);
+  --bg-secondary: var(--light-bg-secondary);
+  --bg-tertiary: var(--light-bg-tertiary);
+  --text-primary: var(--light-text-primary);
+  --text-secondary: var(--light-text-secondary);
+  --border-color: var(--light-border);
+  --shadow: var(--light-shadow);
+  --card-bg: var(--light-card-bg);
+
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+  font-family: var(--font-family);
+  font-size: var(--font-size-base);
+  line-height: var(--line-height-normal);
+  transition: background-color var(--transition-normal),
+              color var(--transition-normal);
+}
+
+/* ═══════════════════════════════════════════════════════════════════ */
+/*                    UTILITY CLASSES (فئات مساعدة)                    */
+/* ═══════════════════════════════════════════════════════════════════ */
+
+/* Text Colors */
+.text-primary {
+  color: var(--text-primary);
+}
+
+.text-secondary {
+  color: var(--text-secondary);
+}
+
+.text-success {
+  color: var(--success);
+}
+
+.text-warning {
+  color: var(--warning);
+}
+
+.text-danger {
+  color: var(--danger);
+}
+
+.text-info {
+  color: var(--info);
+}
+
+/* Background Colors */
+.bg-primary {
+  background-color: var(--bg-primary);
+}
+
+.bg-secondary {
+  background-color: var(--bg-secondary);
+}
+
+.bg-tertiary {
+  background-color: var(--bg-tertiary);
+}
+
+.bg-success {
+  background-color: var(--success);
+}
+
+.bg-warning {
+  background-color: var(--warning);
+}
+
+.bg-danger {
+  background-color: var(--danger);
+}
+
+.bg-info {
+  background-color: var(--info);
+}
+
+/* Cards & Containers */
+.card,
+.container {
+  background-color: var(--card-bg);
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius-lg);
+  padding: var(--spacing-lg);
+  box-shadow: 0 2px 8px var(--shadow);
+  transition: all var(--transition-normal);
+}
+
+.card:hover {
+  box-shadow: 0 4px 12px var(--shadow);
+  transform: translateY(-2px);
+}
+
+/* Buttons */
+.btn {
+  font-family: var(--font-family);
+  font-weight: var(--font-weight-semibold);
+  padding: var(--spacing-sm) var(--spacing-md);
+  border: none;
+  border-radius: var(--border-radius-md);
+  cursor: pointer;
+  transition: all var(--transition-normal);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--spacing-sm);
+}
+
+.btn-primary {
+  background-color: var(--primary-color);
+  color: white;
+}
+
+.btn-primary:hover {
+  background-color: var(--primary-hover);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(108, 92, 231, 0.3);
+}
+
+.btn-secondary {
+  background-color: var(--secondary-color);
+  color: white;
+}
+
+.btn-secondary:hover {
+  background-color: var(--secondary-hover);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 184, 148, 0.3);
+}
+
+.btn-outline {
+  background-color: transparent;
+  border: 2px solid var(--primary-color);
+  color: var(--primary-color);
+}
+
+.btn-outline:hover {
+  background-color: var(--primary-color);
+  color: white;
+}
+
+.btn-danger {
+  background-color: var(--danger);
+  color: white;
+}
+
+.btn-danger:hover {
+  background-color: #e74c3c;
+  transform: translateY(-2px);
+}
+
+.btn-disabled,
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none !important;
+}
+
+/* Input Fields */
+input,
+textarea,
+select {
+  font-family: var(--font-family);
+  font-size: var(--font-size-base);
+  padding: var(--spacing-sm) var(--spacing-md);
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius-md);
+  background-color: var(--bg-secondary);
+  color: var(--text-primary);
+  transition: all var(--transition-normal);
+}
+
+input:focus,
+textarea:focus,
+select:focus {
+  outline: none;
+  border-color: var(--primary-color);
+  box-shadow: 0 0 0 3px rgba(108, 92, 231, 0.1);
+}
+
+/* Labels */
+label {
+  display: block;
+  font-weight: var(--font-weight-medium);
+  margin-bottom: var(--spacing-sm);
+  color: var(--text-primary);
+}
+
+/* Links */
+a {
+  color: var(--primary-color);
+  text-decoration: none;
+  transition: color var(--transition-normal);
+}
+
+a:hover {
+  color: var(--primary-hover);
+  text-decoration: underline;
+}
+
+/* Headings */
+h1, h2, h3, h4, h5, h6 {
+  font-weight: var(--font-weight-bold);
+  line-height: var(--line-height-tight);
+  margin: 0;
+  color: var(--text-primary);
+}
+
+h1 {
+  font-size: var(--font-size-3xl);
+  margin-bottom: var(--spacing-md);
+}
+
+h2 {
+  font-size: var(--font-size-2xl);
+  margin-bottom: var(--spacing-md);
+}
+
+h3 {
+  font-size: var(--font-size-xl);
+  margin-bottom: var(--spacing-sm);
+}
+
+h4 {
+  font-size: var(--font-size-lg);
+  margin-bottom: var(--spacing-sm);
+}
+
+h5 {
+  font-size: var(--font-size-base);
+  margin-bottom: var(--spacing-sm);
+}
+
+h6 {
+  font-size: var(--font-size-sm);
+  margin-bottom: var(--spacing-sm);
+}
+
+/* Badges */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  padding: 4px 12px;
+  border-radius: var(--border-radius-full);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+}
+
+.badge-success {
+  background-color: rgba(0, 184, 148, 0.2);
+  color: var(--success);
+}
+
+.badge-warning {
+  background-color: rgba(253, 203, 110, 0.2);
+  color: var(--warning);
+}
+
+.badge-danger {
+  background-color: rgba(255, 107, 107, 0.2);
+  color: var(--danger);
+}
+
+.badge-info {
+  background-color: rgba(116, 185, 255, 0.2);
+  color: var(--info);
+}
+
+.badge-primary {
+  background-color: rgba(108, 92, 231, 0.2);
+  color: var(--primary-color);
+}
+
+/* Tables */
+table {
+  width: 100%;
+  border-collapse: collapse;
+  background-color: var(--card-bg);
+  border-radius: var(--border-radius-lg);
+  overflow: hidden;
+  box-shadow: 0 2px 8px var(--shadow);
+}
+
+thead {
+  background-color: var(--bg-secondary);
+  border-bottom: 2px solid var(--border-color);
+}
+
+th {
+  padding: var(--spacing-md);
+  text-align: left;
+  font-weight: var(--font-weight-semibold);
+  color: var(--text-primary);
+  font-size: var(--font-size-sm);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+td {
+  padding: var(--spacing-md);
+  border-bottom: 1px solid var(--border-color);
+  color: var(--text-secondary);
+}
+
+tbody tr:hover {
+  background-color: var(--bg-secondary);
+  transition: background-color var(--transition-normal);
+}
+
+/* Lists */
+ul, ol {
+  padding-left: var(--spacing-lg);
+  margin-bottom: var(--spacing-md);
+}
+
+li {
+  margin-bottom: var(--spacing-sm);
+  color: var(--text-primary);
+}
+
+/* Code */
+code,
+pre {
+  font-family: var(--font-family-mono);
+  background-color: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius-md);
+  padding: 2px 6px;
+  font-size: var(--font-size-sm);
+}
+
+pre {
+  padding: var(--spacing-md);
+  overflow-x: auto;
+  margin-bottom: var(--spacing-md);
+}
+
+/* Scrollbar Styling */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--bg-secondary);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--primary-color);
+  border-radius: var(--border-radius-full);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--primary-hover);
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+  --font-size-3xl: 28px;
+  --font-size-2xl: 22px;
+  --font-size-xl: 18px;
+  --spacing-lg: 16px;
+  --spacing-xl: 24px;
+
+  .card,
+  .container {
+    padding: var(--spacing-md);
+  }
+}
+
+@media (max-width: 480px) {
+  --font-size-2xl: 20px;
+  --font-size-xl: 16px;
+  --font-size-lg: 15px;
+  --spacing-md: 12px;
+  --spacing-lg: 16px;
+
+  .card,
+  .container {
+    padding: var(--spacing-md);
+  }
+
+  .btn {
+    padding: 8px 12px;
+    font-size: var(--font-size-sm);
+  }
+}

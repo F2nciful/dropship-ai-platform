@@ -1,124 +1,116 @@
-// Database configuration and connection
-const { Pool } = require('pg');
-require('dotenv').config();
+const Database = require('better-sqlite3');
+const path = require('path');
 
-// Database connection pool
-const pool = new Pool({
-  user: process.env.DB_USER || 'postgres',
-  password: process.env.DB_PASSWORD || 'postgres',
-  host: process.env.DB_HOST || 'localhost',
-  port: process.env.DB_PORT || 5432,
-  database: process.env.DB_NAME || 'dropship_ai'
-});
+// Create/open SQLite database
+const dbPath = path.join(__dirname, '../dropship_ai.db');
+const db = new Database(dbPath);
 
-// Connection error handling
-pool.on('error', (err) => {
-  console.error('Unexpected error on idle client', err);
-});
-
-// Query function with error handling
-const query = async (text, params) => {
-  const start = Date.now();
-  try {
-    const res = await pool.query(text, params);
-    const duration = Date.now() - start;
-    console.log(`✅ Query executed in ${duration}ms`);
-    return res;
-  } catch (error) {
-    console.error('❌ Database error:', error.message);
-    throw error;
-  }
-};
+// Enable foreign keys
+db.pragma('foreign_keys = ON');
 
 // Initialize database tables
-const initDatabase = async () => {
+function initDatabase() {
   try {
     console.log('📊 Initializing database...');
 
     // Users table
-    await query(`
+    db.exec(`
       CREATE TABLE IF NOT EXISTS users (
-        id SERIAL PRIMARY KEY,
-        email VARCHAR(255) UNIQUE NOT NULL,
-        password VARCHAR(255) NOT NULL,
-        name VARCHAR(255) NOT NULL,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        email TEXT UNIQUE NOT NULL,
+        password TEXT NOT NULL,
+        name TEXT NOT NULL,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT DEFAULT CURRENT_TIMESTAMP
       )
     `);
     console.log('✅ Users table ready');
 
     // Agents table
-    await query(`
+    db.exec(`
       CREATE TABLE IF NOT EXISTS agents (
-        id SERIAL PRIMARY KEY,
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
         user_id INTEGER REFERENCES users(id),
-        name VARCHAR(255) NOT NULL,
-        role VARCHAR(255) NOT NULL,
-        status VARCHAR(50) DEFAULT 'active',
-        uptime DECIMAL(5,2) DEFAULT 99.0,
+        name TEXT NOT NULL,
+        role TEXT NOT NULL,
+        status TEXT DEFAULT 'active',
+        uptime REAL DEFAULT 99.0,
         tasks_completed INTEGER DEFAULT 0,
-        last_task VARCHAR(255),
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        last_task TEXT,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT DEFAULT CURRENT_TIMESTAMP
       )
     `);
     console.log('✅ Agents table ready');
 
     // Tasks table
-    await query(`
+    db.exec(`
       CREATE TABLE IF NOT EXISTS tasks (
-        id SERIAL PRIMARY KEY,
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
         user_id INTEGER REFERENCES users(id),
         agent_id INTEGER REFERENCES agents(id),
-        task_name VARCHAR(255) NOT NULL,
-        status VARCHAR(50) DEFAULT 'running',
+        task_name TEXT NOT NULL,
+        status TEXT DEFAULT 'running',
         progress INTEGER DEFAULT 0,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        completed_at TIMESTAMP,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        completed_at TEXT,
+        updated_at TEXT DEFAULT CURRENT_TIMESTAMP
       )
     `);
     console.log('✅ Tasks table ready');
 
     // Activity logs table
-    await query(`
+    db.exec(`
       CREATE TABLE IF NOT EXISTS activity_logs (
-        id SERIAL PRIMARY KEY,
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
         user_id INTEGER REFERENCES users(id),
         agent_id INTEGER REFERENCES agents(id),
-        message VARCHAR(500) NOT NULL,
-        level VARCHAR(50) DEFAULT 'info',
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        message TEXT NOT NULL,
+        level TEXT DEFAULT 'info',
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP
       )
     `);
     console.log('✅ Activity logs table ready');
 
     // Stores table
-    await query(`
+    db.exec(`
       CREATE TABLE IF NOT EXISTS stores (
-        id SERIAL PRIMARY KEY,
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
         user_id INTEGER REFERENCES users(id),
-        name VARCHAR(255) NOT NULL,
-        platform VARCHAR(100) NOT NULL,
-        status VARCHAR(50) DEFAULT 'active',
+        name TEXT NOT NULL,
+        platform TEXT NOT NULL,
+        status TEXT DEFAULT 'active',
         products_count INTEGER DEFAULT 0,
         orders_count INTEGER DEFAULT 0,
-        revenue DECIMAL(10,2) DEFAULT 0,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        revenue REAL DEFAULT 0,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT DEFAULT CURRENT_TIMESTAMP
       )
     `);
     console.log('✅ Stores table ready');
 
+    // Products table
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS products (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        store_id INTEGER REFERENCES stores(id),
+        name TEXT NOT NULL,
+        sku TEXT UNIQUE,
+        price REAL NOT NULL,
+        quantity INTEGER DEFAULT 0,
+        status TEXT DEFAULT 'active',
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    console.log('✅ Products table ready');
+
     console.log('🎉 Database initialized successfully!');
   } catch (error) {
     console.error('❌ Database initialization error:', error.message);
+    throw error;
   }
-};
+}
 
-module.exports = {
-  query,
-  initDatabase,
-  pool
-};
+module.exports = db;
+module.exports.initDatabase = initDatabase;

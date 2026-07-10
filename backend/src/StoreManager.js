@@ -1,244 +1,84 @@
-import React, { useState, useEffect } from 'react';
-import { FiPlus, FiEdit2, FiTrash2, FiEye, FiRefreshCw } from 'react-icons/fi';
-import './StoreManager.css';
+const sqlite3 = require('sqlite3').verbose();
+const path = require('path');
 
-function StoreManager({ setView }) {
-  const [stores, setStores] = useState([]);
-  const [selectedStore, setSelectedStore] = useState(null);
-  const [storePerformance, setStorePerformance] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState('list');
+const dbPath = path.join(__dirname, './dropship_ai.db');
+const db = new sqlite3.Database(dbPath);
 
-  // جلب الـ Stores من API
-  useEffect(() => {
-    fetchStores();
-  }, []);
+const query = (sql, params = []) => {
+  return new Promise((resolve, reject) => {
+    db.run(sql, params, function(err) {
+      if (err) reject(err);
+      else resolve({ lastID: this.lastID, changes: this.changes });
+    });
+  });
+};
 
-  const fetchStores = async () => {
-    try {
-      setLoading(true);
-      const res = await fetch('http://localhost:5000/api/stores');
-      const data = await res.json();
-      setStores(data);
-      setLoading(false);
-    } catch (error) {
-      console.error('Error fetching stores:', error);
-      setLoading(false);
-    }
-  };
+const initDatabase = async () => {
+  try {
+    console.log('📊 Initializing SQLite database...');
 
-  const fetchStorePerformance = async (storeId) => {
-    try {
-      const res = await fetch(`http://localhost:5000/api/stores/${storeId}/performance`);
-      const data = await res.json();
-      setStorePerformance(data);
-    } catch (error) {
-      console.error('Error fetching performance:', error);
-    }
-  };
+    db.serialize(() => {
+      db.run(`
+        CREATE TABLE IF NOT EXISTS users (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          email TEXT UNIQUE NOT NULL,
+          password TEXT NOT NULL,
+          name TEXT NOT NULL,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+      console.log('✅ Users table ready');
 
-  const handleViewStore = (store) => {
-    setSelectedStore(store);
-    fetchStorePerformance(store.id);
-    setActiveTab('details');
-  };
+      db.run(`
+        CREATE TABLE IF NOT EXISTS agents (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          name TEXT NOT NULL,
+          role TEXT NOT NULL,
+          status TEXT DEFAULT 'active'
+        )
+      `);
+      console.log('✅ Agents table ready');
 
-  return (
-    <>
-      {setView && (
-        <button 
-          onClick={() => setView('dashboard')}
-          style={{
-            position: 'fixed',
-            top: '20px',
-            left: '20px',
-            background: '#00ff41',
-            color: '#0a0a0a',
-            border: 'none',
-            padding: '10px 20px',
-            borderRadius: '6px',
-            cursor: 'pointer',
-            fontWeight: 'bold',
-            zIndex: 999,
-            fontSize: '0.9em'
-          }}
-        >
-          ← Back to Dashboard
-        </button>
-      )}
-      <div className="store-manager">
-        <div className="store-header">
-          <h2>🏪 Store Management</h2>
-          <button className="btn-add-store">
-            <FiPlus /> Add New Store
-          </button>
-        </div>
+      db.run(`
+        CREATE TABLE IF NOT EXISTS tasks (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          agent_id INTEGER,
+          task_name TEXT NOT NULL,
+          status TEXT DEFAULT 'running',
+          progress INTEGER DEFAULT 0
+        )
+      `);
+      console.log('✅ Tasks table ready');
 
-        {/* TABS */}
-        <div className="store-tabs">
-          <button 
-            className={`tab ${activeTab === 'list' ? 'active' : ''}`}
-            onClick={() => setActiveTab('list')}
-          >
-            All Stores ({stores.length})
-          </button>
-          {selectedStore && (
-            <button 
-              className={`tab ${activeTab === 'details' ? 'active' : ''}`}
-              onClick={() => setActiveTab('details')}
-            >
-              {selectedStore.name}
-            </button>
-          )}
-        </div>
+      db.run(`
+        CREATE TABLE IF NOT EXISTS activity_logs (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          agent_id INTEGER,
+          message TEXT NOT NULL,
+          level TEXT DEFAULT 'info'
+        )
+      `);
+      console.log('✅ Activity logs table ready');
 
-        {/* STORES LIST */}
-        {activeTab === 'list' && (
-          <div className="stores-list">
-            {loading ? (
-              <p className="loading">Loading stores...</p>
-            ) : stores.length === 0 ? (
-              <p className="empty">No stores found</p>
-            ) : (
-              stores.map(store => (
-                <div key={store.id} className="store-card">
-                  <div className="store-info">
-                    <div className="store-name">
-                      <h3>{store.name}</h3>
-                      <span className={`badge ${store.status}`}>{store.status.toUpperCase()}</span>
-                    </div>
-                    <p className="platform">📱 {store.platform}</p>
-                    
-                    <div className="store-stats">
-                      <div className="stat">
-                        <span className="label">Products</span>
-                        <span className="value">{store.products}</span>
-                      </div>
-                      <div className="stat">
-                        <span className="label">Orders</span>
-                        <span className="value">{store.orders}</span>
-                      </div>
-                      <div className="stat">
-                        <span className="label">Revenue</span>
-                        <span className="value">{store.revenue}</span>
-                      </div>
-                    </div>
-                  </div>
+      db.run(`
+        CREATE TABLE IF NOT EXISTS stores (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          name TEXT NOT NULL,
+          platform TEXT NOT NULL,
+          status TEXT DEFAULT 'active'
+        )
+      `);
+      console.log('✅ Stores table ready');
+    });
 
-                  <div className="store-actions">
-                    <button 
-                      className="btn-view"
-                      onClick={() => handleViewStore(store)}
-                    >
-                      <FiEye /> View
-                    </button>
-                    <button className="btn-edit">
-                      <FiEdit2 /> Edit
-                    </button>
-                    <button className="btn-delete">
-                      <FiTrash2 /> Delete
-                    </button>
-                  </div>
-                </div>
-              ))
-            )}
-          </div>
-        )}
+    console.log('🎉 Database initialized successfully!');
+  } catch (error) {
+    console.error('❌ Database initialization error:', error.message);
+  }
+};
 
-        {/* STORE DETAILS */}
-        {activeTab === 'details' && selectedStore && storePerformance && (
-          <div className="store-details">
-            <div className="details-header">
-              <h3>{selectedStore.name}</h3>
-              <button onClick={() => fetchStorePerformance(selectedStore.id)} className="btn-refresh">
-                <FiRefreshCw /> Refresh
-              </button>
-            </div>
-
-            {/* PERFORMANCE METRICS */}
-            <div className="performance-section">
-              <h4>Performance Metrics</h4>
-              
-              <div className="metrics-grid">
-                <div className="metric-card">
-                  <h5>Revenue</h5>
-                  <div className="metric-values">
-                    <div className="value-item">
-                      <span>Today</span>
-                      <span className="amount">{storePerformance.revenue.today}</span>
-                    </div>
-                    <div className="value-item">
-                      <span>This Week</span>
-                      <span className="amount">{storePerformance.revenue.week}</span>
-                    </div>
-                    <div className="value-item">
-                      <span>This Month</span>
-                      <span className="amount">{storePerformance.revenue.month}</span>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="metric-card">
-                  <h5>Orders</h5>
-                  <div className="metric-values">
-                    <div className="value-item">
-                      <span>Today</span>
-                      <span className="amount">{storePerformance.orders.today}</span>
-                    </div>
-                    <div className="value-item">
-                      <span>This Week</span>
-                      <span className="amount">{storePerformance.orders.week}</span>
-                    </div>
-                    <div className="value-item">
-                      <span>This Month</span>
-                      <span className="amount">{storePerformance.orders.month}</span>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="metric-card">
-                  <h5>Customers</h5>
-                  <div className="metric-values">
-                    <div className="value-item">
-                      <span>New</span>
-                      <span className="amount">{storePerformance.customers.new}</span>
-                    </div>
-                    <div className="value-item">
-                      <span>Returning</span>
-                      <span className="amount">{storePerformance.customers.returning}</span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* TOP PRODUCTS */}
-            <div className="top-products">
-              <h4>Top Products</h4>
-              <table className="products-table">
-                <thead>
-                  <tr>
-                    <th>Product Name</th>
-                    <th>Sold</th>
-                    <th>Revenue</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {storePerformance.topProducts.map((product, idx) => (
-                    <tr key={idx}>
-                      <td>{product.name}</td>
-                      <td>{product.sold}</td>
-                      <td>{product.revenue}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        )}
-      </div>
-    </>
-  );
-}
-
-export default StoreManager;
+module.exports = {
+  query,
+  initDatabase,
+  db
+};
