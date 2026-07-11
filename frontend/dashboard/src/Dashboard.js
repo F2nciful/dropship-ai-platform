@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import './Dashboard.css';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, LineChart, Line, PieChart, Pie, Cell } from 'recharts';
 
 const API_URL = 'http://localhost:5000/api';
 
@@ -30,6 +31,86 @@ const normalizeList = (data, key) => {
   if (data && Array.isArray(data.data)) return data.data;
   return [];
 };
+
+const SkelLine = ({ w, h, radius }) => (
+  <div className="dsh-skel-base dsh-skel-line" style={{ width: w, height: h, borderRadius: radius }} />
+);
+
+const SkelBlock = ({ w, h, radius, flex }) => (
+  <div className="dsh-skel-base dsh-skel-block" style={{ width: w, height: h, borderRadius: radius, flex }} />
+);
+
+const SkeletonStat = () => (
+  <div className="dsh-stat">
+    <SkelBlock w={44} h={44} radius="50%" />
+    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 8 }}>
+      <SkelLine w="55%" h={22} />
+      <SkelLine w="80%" h={11} />
+    </div>
+  </div>
+);
+
+const SkeletonManagerHero = () => (
+  <div className="dsh-manager-hero dsh-manager-hero--skeleton">
+    <div className="dsh-manager-content">
+      <div className="dsh-manager-header">
+        <SkelBlock w={70} h={70} radius={14} />
+        <div className="dsh-manager-info" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <SkelLine w={180} h={20} />
+          <SkelLine w={120} h={12} />
+        </div>
+        <SkelLine w={70} h={24} radius={999} />
+      </div>
+      <div className="dsh-manager-stats">
+        {[0, 1, 2].map(i => (
+          <div key={i} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <SkelLine w="70%" h={10} />
+            <SkelLine w="50%" h={22} />
+          </div>
+        ))}
+      </div>
+      <div className="dsh-manager-actions">
+        {[0, 1, 2].map(i => <SkelBlock key={i} w={110} h={40} radius={10} />)}
+      </div>
+    </div>
+  </div>
+);
+
+const SkeletonAgentCard = () => (
+  <div className="dsh-agent">
+    <div className="dsh-agent-top">
+      <SkelBlock w={48} h={48} radius={12} />
+      <SkelLine w={60} h={20} radius={999} />
+    </div>
+    <div style={{ marginBottom: 10 }}><SkelLine w="70%" h={16} /></div>
+    <div style={{ marginBottom: 16 }}><SkelLine w="50%" h={12} /></div>
+    <div style={{ display: 'flex', gap: 8 }}>
+      <SkelBlock flex={1} h={32} radius={8} />
+      <SkelBlock flex={1} h={32} radius={8} />
+    </div>
+  </div>
+);
+
+const SkeletonTaskRow = () => (
+  <div className="dsh-row">
+    <div className="dsh-row-main" style={{ gap: 8 }}>
+      <SkelLine w="40%" h={14} />
+      <SkelLine w="65%" h={11} />
+    </div>
+    <SkelLine w={70} h={22} radius={999} />
+  </div>
+);
+
+const SkeletonChart = () => (
+  <div className="dsh-analytics-card">
+    <div style={{ marginBottom: 16 }}><SkelLine w="40%" h={16} /></div>
+    <div style={{ height: 300, display: 'flex', alignItems: 'flex-end', gap: 10, padding: '0 4px 4px' }}>
+      {[45, 70, 55, 85, 60, 40, 75].map((h, i) => (
+        <SkelBlock key={i} flex={1} h={`${h}%`} radius="6px 6px 0 0" />
+      ))}
+    </div>
+  </div>
+);
 
 function Dashboard({ user, onLogout }) {
   const [dark, setDark] = useState(() => localStorage.getItem('dsh-theme') !== 'light');
@@ -69,7 +150,10 @@ function Dashboard({ user, onLogout }) {
   const [pausedAgents, setPausedAgents] = useState({});
   const [settingsAgent, setSettingsAgent] = useState(null);
   const [sidebarTab, setSidebarTab] = useState('overview');
-  const [visibleAgents, setVisibleAgents] = useState({});
+  const [visibleAgents, setVisibleAgents] = useState(() => {
+  const saved = localStorage.getItem('visibleAgents');
+  return saved ? JSON.parse(saved) : {};
+});
 
   const [analyticsData, setAnalyticsData] = useState({
     weeklyPerformance: [
@@ -133,7 +217,14 @@ function Dashboard({ user, onLogout }) {
 
   useEffect(() => {
     const saved = localStorage.getItem('visibleAgents');
-    if (saved) setVisibleAgents(JSON.parse(saved));
+    if (saved) {
+      try {
+        setVisibleAgents(JSON.parse(saved));
+      } catch (e) {
+        console.error('Error loading visible agents:', e);
+        localStorage.removeItem('visibleAgents');
+      }
+    }
   }, []);
 
   const agentStatus = (a) => (a.status || 'offline').toLowerCase();
@@ -141,10 +232,34 @@ function Dashboard({ user, onLogout }) {
   const managerAgent = agents.find(a => a.type === 'manager');
   const workerAgents = agents.filter(a => a.type !== 'manager');
   const doneTasks = tasks.filter(x => (x.status || '').toLowerCase() === 'completed').length;
+  const runningTasks = tasks.filter(x => (x.status || '').toLowerCase() === 'running').length;
+  const pendingTasks = tasks.filter(x => (x.status || '').toLowerCase() === 'pending').length;
+  const taskDistribution = [
+    { name: 'Completed', value: doneTasks, color: '#E8C766' },
+    { name: 'Running', value: runningTasks, color: '#C68E17' },
+    { name: 'Pending', value: pendingTasks, color: '#9CA3AF' },
+  ];
+
+  const agentStatusDistribution = [
+    { name: 'Online', value: workerAgents.filter(a => agentStatus(a) === 'online').length, color: '#E8C766' },
+    { name: 'Offline', value: workerAgents.filter(a => agentStatus(a) === 'offline').length, color: '#ef4444' },
+    { name: 'Busy', value: workerAgents.filter(a => agentStatus(a) === 'busy').length, color: '#C68E17' },
+  ];
+
+  const AGENT_TYPE_COLORS = {
+    research: '#D4AF37', pricing: '#E8C766', inventory: '#9CA3AF', marketing: '#f97316',
+    social: '#ec4899', payment: '#eab308', supplier: '#14b8a6', analytics: '#6366f1',
+    support: '#ef4444', email: '#06b6d4', shipping: '#a855f7',
+  };
+  const agentTypeDistribution = Object.keys(AGENT_TYPE_COLORS).map(type => ({
+    name: type.charAt(0).toUpperCase() + type.slice(1),
+    value: workerAgents.filter(a => (a.type || '').toLowerCase() === type).length,
+    color: AGENT_TYPE_COLORS[type],
+  })).filter(entry => entry.value > 0);
 
   const filteredAgents = workerAgents.filter(a => {
     const name = (a.name || a.agent_name || '').toLowerCase();
-    const isVisible = visibleAgents[a.id] !== false;
+    const isVisible = visibleAgents[a.id] === true;
     return name.includes(agentSearch.toLowerCase()) && isVisible;
   });
 
@@ -182,25 +297,37 @@ function Dashboard({ user, onLogout }) {
     setSettingsAgent(null);
   };
 
-  const toggleAgentVisibility = (agentId) => {
-    setVisibleAgents(prev => ({
-      ...prev,
-      [agentId]: !prev[agentId]
-    }));
-  };
+const toggleAgentVisibility = useCallback((agentId) => {
+  setVisibleAgents(prev => {
+    const updated = { ...prev };
+    if (updated[agentId]) {
+      delete updated[agentId];
+    } else {
+      updated[agentId] = true;
+    }
+    return updated;
+  });
+}, []);
 
-  const selectAllAgents = () => {
-    const all = {};
-    workerAgents.forEach(a => { all[a.id] = true; });
-    setVisibleAgents(all);
-    showToast('All agents selected', 'success');
-  };
+ const selectAllAgents = useCallback(() => {
+  if (agents.length === 0) {
+    showToast('No agents available', 'warning');
+    return;
+  }
+  const all = {};
+  agents.forEach(a => {
+    if (a.type !== 'manager') {
+      all[a.id] = true;
+    }
+  });
+  setVisibleAgents(all);
+  showToast('All agents selected', 'success');
+}, [agents, showToast]);
 
-  const deselectAllAgents = () => {
-    setVisibleAgents({});
-    showToast('All agents deselected', 'info');
-  };
-
+const deselectAllAgents = useCallback(() => {
+  setVisibleAgents({});
+  showToast('All agents deselected', 'info');
+}, [showToast]);
   const StatusBadge = ({ status }) => {
     const st = (status || 'offline').toLowerCase();
     let cls = 'dsh-badge--off';
@@ -235,7 +362,7 @@ function Dashboard({ user, onLogout }) {
       <aside className={`dsh-side ${sidebarOpen ? 'dsh-side--open' : ''}`}>
         <div className="dsh-logo">
           <span className="dsh-logo-mark">◆</span>
-          <span className="dsh-logo-text">Dropship<b>AI</b></span>
+          <span className="dsh-logo-text">Nexus</span>
         </div>
 
         <div className="dsh-profit-ticker">
@@ -322,11 +449,11 @@ function Dashboard({ user, onLogout }) {
               {workerAgents.map(agent => (
                 <div key={agent.id} className="dsh-agent-item">
                   <input 
-                    type="checkbox" 
-                    id={`agent-${agent.id}`}
-                    checked={visibleAgents[agent.id] !== false}
-                    onChange={() => toggleAgentVisibility(agent.id)}
-                  />
+  type="checkbox" 
+  id={`agent-${agent.id}`}
+  checked={visibleAgents[agent.id] === true}
+  onChange={() => toggleAgentVisibility(agent.id)}
+/>
                   <label htmlFor={`agent-${agent.id}`}>{agent.name}</label>
                 </div>
               ))}
@@ -368,39 +495,83 @@ function Dashboard({ user, onLogout }) {
         </header>
 
         <section className="dsh-stats">
-          <div className="dsh-stat dsh-stat--purple">
-            <span className="dsh-stat-icon">🤖</span>
-            <div>
-              <div className="dsh-stat-num">{loading ? '…' : agents.length}</div>
-              <div className="dsh-stat-label">{t.totalAgents}</div>
-            </div>
-          </div>
-          <div className="dsh-stat dsh-stat--green">
-            <span className="dsh-stat-icon">⚡</span>
-            <div>
-              <div className="dsh-stat-num">{loading ? '…' : activeCount}</div>
-              <div className="dsh-stat-label">{t.activeAgents}</div>
-            </div>
-          </div>
-          <div className="dsh-stat dsh-stat--blue">
-            <span className="dsh-stat-icon">📋</span>
-            <div>
-              <div className="dsh-stat-num">{loading ? '…' : tasks.length}</div>
-              <div className="dsh-stat-label">{t.totalTasks}</div>
-            </div>
-          </div>
-          <div className="dsh-stat dsh-stat--gold">
-            <span className="dsh-stat-icon">✅</span>
-            <div>
-              <div className="dsh-stat-num">{loading ? '…' : doneTasks}</div>
-              <div className="dsh-stat-label">{t.completedTasks}</div>
-            </div>
-          </div>
+          {loading ? (
+            [0, 1, 2, 3].map(i => <SkeletonStat key={i} />)
+          ) : (
+            <>
+              <div className="dsh-stat dsh-stat--purple">
+                <span className="dsh-stat-icon">🤖</span>
+                <div>
+                  <div className="dsh-stat-num">{agents.length}</div>
+                  <div className="dsh-stat-label">{t.totalAgents}</div>
+                </div>
+              </div>
+              <div className="dsh-stat dsh-stat--green">
+                <span className="dsh-stat-icon">⚡</span>
+                <div>
+                  <div className="dsh-stat-num">{activeCount}</div>
+                  <div className="dsh-stat-label">{t.activeAgents}</div>
+                </div>
+              </div>
+              <div className="dsh-stat dsh-stat--blue">
+                <span className="dsh-stat-icon">📋</span>
+                <div>
+                  <div className="dsh-stat-num">{tasks.length}</div>
+                  <div className="dsh-stat-label">{t.totalTasks}</div>
+                </div>
+              </div>
+              <div className="dsh-stat dsh-stat--gold">
+                <span className="dsh-stat-icon">✅</span>
+                <div>
+                  <div className="dsh-stat-num">{doneTasks}</div>
+                  <div className="dsh-stat-label">{t.completedTasks}</div>
+                </div>
+              </div>
+            </>
+          )}
         </section>
 
-        {(page === 'dashboard' || page === 'agents') && (
+        {(page === 'dashboard') && (
           <section className="dsh-section">
-            {managerAgent && (
+            {loading ? <SkeletonManagerHero /> : managerAgent && (
+              <div className="dsh-manager-hero">
+                <div className="dsh-manager-content">
+                  <div className="dsh-manager-header">
+                    <div className="dsh-manager-icon">👨‍💼</div>
+                    <div className="dsh-manager-info">
+                      <h2 className="dsh-manager-name">{managerAgent.name}</h2>
+                      <p className="dsh-manager-role">{managerAgent.role || t.manager}</p>
+                    </div>
+                    <StatusBadge status={managerAgent.status} />
+                  </div>
+                  <div className="dsh-manager-stats">
+                    <div className="dsh-manager-stat">
+                      <span className="dsh-manager-stat-label">{t.coordinating}</span>
+                      <span className="dsh-manager-stat-value">{managerAgent.coordinating || 11}</span>
+                    </div>
+                    <div className="dsh-manager-stat">
+                      <span className="dsh-manager-stat-label">{t.tasksRunning}</span>
+                      <span className="dsh-manager-stat-value">{managerAgent.tasks_running || 5}</span>
+                    </div>
+                    <div className="dsh-manager-stat">
+                      <span className="dsh-manager-stat-label">{t.uptime}</span>
+                      <span className="dsh-manager-stat-value">{managerAgent.uptime || '99.8%'}</span>
+                    </div>
+                  </div>
+                  <div className="dsh-manager-actions">
+                    <button className="dsh-btn dsh-btn--primary">▶ {t.details}</button>
+                    <button className="dsh-btn dsh-btn--ghost">⏸ Pause</button>
+                    <button className="dsh-btn dsh-btn--ghost">⚙ Settings</button>
+                  </div>
+                </div>
+              </div>
+            )}
+          </section>
+        )}
+
+        {(page === 'agents') && (
+          <section className="dsh-section">
+            {loading ? <SkeletonManagerHero /> : managerAgent && (
               <div className="dsh-manager-hero">
                 <div className="dsh-manager-content">
                   <div className="dsh-manager-header">
@@ -442,7 +613,7 @@ function Dashboard({ user, onLogout }) {
               </div>
             </div>
 
-            {loading ? <div className="dsh-grid">{[...Array(6)].map((_, i) => <div key={i} className="dsh-skel" />)}</div> : filteredAgents.length === 0 ? <div className="dsh-empty">🤖 {t.noAgents}</div> : (
+            {loading ? <div className="dsh-grid">{[...Array(6)].map((_, i) => <SkeletonAgentCard key={i} />)}</div> : filteredAgents.length === 0 ? <div className="dsh-empty">🤖 {t.noAgents}</div> : (
               <div className="dsh-grid">
                 {filteredAgents.map((a, i) => (
                   <div key={a.id || i} className={`dsh-agent ${pausedAgents[a.id] ? 'dsh-agent--paused' : ''}`} onClick={() => setSelectedAgent(a)}>
@@ -473,7 +644,9 @@ function Dashboard({ user, onLogout }) {
               <h2>{t.tasks}</h2>
               <input className="dsh-input" placeholder={t.searchTasks} value={taskSearch} onChange={e => setTaskSearch(e.target.value)} />
             </div>
-            {filteredTasks.length === 0 ? <div className="dsh-empty">📋 {t.noTasks}</div> : (
+            {loading ? (
+              <div className="dsh-list">{[0, 1, 2, 3, 4].map(i => <SkeletonTaskRow key={i} />)}</div>
+            ) : filteredTasks.length === 0 ? <div className="dsh-empty">📋 {t.noTasks}</div> : (
               <div className="dsh-list">
                 {filteredTasks.map((x, i) => (
                   <div key={x.id || i} className="dsh-row">
@@ -505,68 +678,118 @@ function Dashboard({ user, onLogout }) {
             <h2>📊 Performance Analytics</h2>
             
             <div className="dsh-analytics-grid">
+              {loading ? [0, 1, 2, 3, 4].map(i => <SkeletonChart key={i} />) : (
+              <>
               <div className="dsh-analytics-card">
                 <h3>Weekly Performance</h3>
-                <div className="dsh-chart">
-                  {analyticsData.weeklyPerformance.map(day => (
-                    <div key={day.day} className="dsh-chart-bar" style={{ height: `${day.efficiency}%` }} title={`${day.day}: ${day.efficiency}%`}>
-                      <span className="dsh-chart-label">{day.day}</span>
-                    </div>
-                  ))}
-                </div>
-                <div className="dsh-chart-legend">Efficiency Rate (%)</div>
+                <ResponsiveContainer width="100%" height={300}>
+  <BarChart data={analyticsData.weeklyPerformance}>
+    <CartesianGrid strokeDasharray="3 3" />
+    <XAxis dataKey="day" />
+    <YAxis />
+    <Tooltip />
+    <Legend />
+    <Bar dataKey="efficiency" fill="#D4AF37" name="Efficiency (%)" />
+    <Bar dataKey="success" fill="#E8C766" name="Success Rate (%)" />
+  </BarChart>
+</ResponsiveContainer>
               </div>
 
               <div className="dsh-analytics-card">
                 <h3>Agent Performance</h3>
-                <div className="dsh-agent-stats">
-                  {analyticsData.agentStats.map(agent => (
-                    <div key={agent.name} className="dsh-agent-stat">
-                      <div className="dsh-agent-stat-header">
-                        <span className="dsh-agent-stat-name">{agent.name}</span>
-                        <span className="dsh-agent-stat-success">{agent.success}%</span>
-                      </div>
-                      <div className="dsh-progress-bar">
-                        <div className="dsh-progress-fill" style={{ width: `${agent.success}%` }} />
-                      </div>
-                      <div className="dsh-agent-stat-meta">
-                        <span>{agent.tasks} tasks</span>
-                        <span>{agent.avgTime} avg</span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
+                <ResponsiveContainer width="100%" height={300}>
+                  <LineChart data={analyticsData.agentStats}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="name" angle={-45} textAnchor="end" interval={0} height={80} />
+                    <YAxis />
+                    <Tooltip />
+                    <Legend />
+                    <Line type="monotone" dataKey="success" stroke="#E8C766" name="Success Rate (%)" />
+                    <Line type="monotone" dataKey="tasks" stroke="#D4AF37" name="Tasks" />
+                  </LineChart>
+                </ResponsiveContainer>
               </div>
+
+              <div className="dsh-analytics-card">
+                <h3>Tasks Distribution</h3>
+                <ResponsiveContainer width="100%" height={300}>
+                  <PieChart>
+                    <Pie data={taskDistribution} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={100} label>
+                      {taskDistribution.map(entry => (
+                        <Cell key={entry.name} fill={entry.color} />
+                      ))}
+                    </Pie>
+                    <Tooltip />
+                    <Legend />
+                  </PieChart>
+                </ResponsiveContainer>
+              </div>
+
+              <div className="dsh-analytics-card">
+                <h3>Agents Status Distribution</h3>
+                <ResponsiveContainer width="100%" height={300}>
+                  <PieChart>
+                    <Pie data={agentStatusDistribution} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={100} label>
+                      {agentStatusDistribution.map(entry => (
+                        <Cell key={entry.name} fill={entry.color} />
+                      ))}
+                    </Pie>
+                    <Tooltip />
+                    <Legend />
+                  </PieChart>
+                </ResponsiveContainer>
+              </div>
+
+              <div className="dsh-analytics-card">
+                <h3>Agents by Type</h3>
+                <ResponsiveContainer width="100%" height={300}>
+                  <PieChart>
+                    <Pie data={agentTypeDistribution} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={100} label>
+                      {agentTypeDistribution.map(entry => (
+                        <Cell key={entry.name} fill={entry.color} />
+                      ))}
+                    </Pie>
+                    <Tooltip />
+                    <Legend />
+                  </PieChart>
+                </ResponsiveContainer>
+              </div>
+              </>
+              )}
             </div>
 
             <div className="dsh-analytics-summary">
-              <div className="dsh-summary-card">
-                <div className="dsh-summary-icon">⚡</div>
-                <div className="dsh-summary-content">
-                  <div className="dsh-summary-label">Avg Efficiency</div>
-                  <div className="dsh-summary-value">86.3%</div>
+              <div className="dsh-summary-card dsh-summary-card--purple">
+                <div className="dsh-summary-ring" style={{ '--pct': 86 }}>
+                  <span className="dsh-summary-ring-icon">⚡</span>
                 </div>
+                <div className="dsh-summary-label">Avg Efficiency</div>
+                <div className="dsh-summary-value">86.3%</div>
+                <div className="dsh-summary-desc">Overall agent efficiency this week</div>
               </div>
-              <div className="dsh-summary-card">
-                <div className="dsh-summary-icon">✅</div>
-                <div className="dsh-summary-content">
-                  <div className="dsh-summary-label">Success Rate</div>
-                  <div className="dsh-summary-value">95.3%</div>
+
+              <div className="dsh-summary-card dsh-summary-card--green">
+                <div className="dsh-summary-ring" style={{ '--pct': 95 }}>
+                  <span className="dsh-summary-ring-icon">✅</span>
                 </div>
+                <div className="dsh-summary-label">Success Rate</div>
+                <div className="dsh-summary-value">95.3%</div>
+                <div className="dsh-summary-desc">Tasks completed without errors</div>
               </div>
-              <div className="dsh-summary-card">
-                <div className="dsh-summary-icon">🎯</div>
-                <div className="dsh-summary-content">
-                  <div className="dsh-summary-label">Tasks Today</div>
-                  <div className="dsh-summary-value">847</div>
-                </div>
+
+              <div className="dsh-summary-card dsh-summary-card--blue">
+                <div className="dsh-summary-trend dsh-summary-trend--up">▲ 8.2%</div>
+                <div className="dsh-summary-icon-badge">🎯</div>
+                <div className="dsh-summary-label">Tasks Today</div>
+                <div className="dsh-summary-value">847</div>
+                <div className="dsh-summary-desc">vs. yesterday</div>
               </div>
-              <div className="dsh-summary-card">
-                <div className="dsh-summary-icon">⏱️</div>
-                <div className="dsh-summary-content">
-                  <div className="dsh-summary-label">Avg Response</div>
-                  <div className="dsh-summary-value">2.4s</div>
-                </div>
+
+              <div className="dsh-summary-card dsh-summary-card--orange">
+                <div className="dsh-summary-icon-badge">⏱️</div>
+                <div className="dsh-summary-label">Avg Response</div>
+                <div className="dsh-summary-value">2.4s</div>
+                <div className="dsh-summary-desc">2,400ms average latency</div>
               </div>
             </div>
           </section>

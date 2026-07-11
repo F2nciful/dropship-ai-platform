@@ -1,36 +1,50 @@
 @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800&family=Space+Grotesk:wght@400;500;600;700&display=swap');
 
+/* Gold/white/black palette. Variable names (--purple, --green, --blue, --gold,
+   --orange) are kept as-is to avoid touching every call site; only the hex
+   values changed, each still mapped to a distinct role so status indicators
+   (online/busy/info/success) stay visually distinguishable. */
 .dsh {
-  --purple: #7C3AED;
-  --purple-soft: #A78BFA;
-  --purple-glow: rgba(124, 58, 237, 0.35);
-  --green: #10B981;
-  --gold: #F59E0B;
-  --red: #EF4444;
-  --blue: #3B82F6;
+  --purple: #D4AF37;                          /* primary/brand gold */
+  --purple-soft: #E8C766;                     /* light gold */
+  --purple-glow: rgba(212, 175, 55, 0.35);
+  --green: #E8C766;                           /* success / online - light gold */
+  --gold: #C68E17;                            /* warning / busy - medium amber gold */
+  --red: #EF4444;                             /* error / offline - unchanged */
+  --blue: #9CA3AF;                            /* info / neutral - gray */
+  --orange: #B8860B;                          /* secondary amber accent */
+  --on-gold: #141414;                         /* readable text/icon color for anything sitting on a gold/amber/gray surface */
   --radius: 14px;
   --font: 'Space Grotesk', 'Cairo', 'Segoe UI', sans-serif;
 }
 
 .dsh--dark {
-  --bg: #0B0A12;
-  --bg2: #14121F;
-  --card: #191627;
-  --card-hover: #1F1B30;
-  --line: #2A2540;
-  --text: #F2F0FA;
-  --text2: #8B86A3;
-  --side-bg: #0E0C17;
+  --bg: #0A0A0A;
+  --bg2: #141414;
+  --card: #1A1A1A;
+  --card-hover: #242424;
+  --line: #2E2A20;
+  --text: #FFFFFF;
+  --text2: #B3B3B3;
+  --side-bg: #050505;
+  --purple-text: #D4AF37;                     /* gold reads fine directly on dark surfaces */
+  --green-text: #E8C766;
+  --gold-text: #C68E17;
+  --blue-text: #9CA3AF;
 }
 
 .dsh--light {
-  --bg: #F7F6FB;
-  --bg2: #FFFFFF;
+  --bg: #FFFFFF;
+  --bg2: #FAFAFA;
   --card: #FFFFFF;
-  --card-hover: #F3F0FC;
-  --line: #E5E1F2;
-  --text: #1A1626;
-  --text2: #6E6885;
+  --card-hover: #FAF6E8;
+  --line: #E5E5E5;
+  --text: #000000;
+  --text2: #555555;
+  --purple-text: #9C7A22;                     /* darker gold for adequate contrast on white */
+  --green-text: #8A6D14;
+  --gold-text: #8A6414;
+  --blue-text: #6B7280;
   --side-bg: #FFFFFF;
 }
 
@@ -71,12 +85,12 @@
 }
 
 .dsh-logo-mark {
-  color: var(--purple);
+  color: var(--purple-text);
   font-size: 22px;
   filter: drop-shadow(0 0 8px var(--purple-glow));
 }
 
-.dsh-logo-text b { color: var(--purple); }
+.dsh-logo-text { color: var(--purple-text); }
 
 .dsh-nav { display: flex; flex-direction: column; gap: 4px; flex: 0; }
 
@@ -100,8 +114,8 @@
 .dsh-nav-item:hover { background: var(--card-hover); color: var(--text); }
 
 .dsh-nav-item--active {
-  background: linear-gradient(135deg, var(--purple), #9333EA);
-  color: #fff;
+  background: linear-gradient(135deg, var(--purple), #9C7A22);
+  color: var(--on-gold);
   box-shadow: 0 4px 16px var(--purple-glow);
 }
 
@@ -109,11 +123,11 @@
 
 /* ═══ PROFIT TICKER ═══ */
 .dsh-profit-ticker {
-  background: linear-gradient(135deg, #10B981, #059669);
+  background: linear-gradient(135deg, var(--purple), #9C7A22);
   border-radius: 12px;
   padding: 16px;
   margin: 16px 0;
-  color: #fff;
+  color: var(--on-gold);
   animation: dshFadeUp 0.5s ease;
 }
 
@@ -158,7 +172,7 @@
 
 .dsh-alert-badge {
   background: var(--purple);
-  color: #fff;
+  color: var(--on-gold);
   width: 20px;
   height: 20px;
   border-radius: 50%;
@@ -262,7 +276,7 @@
 .dsh-activity-agent {
   font-size: 12px;
   font-weight: 700;
-  color: var(--purple);
+  color: var(--purple-text);
 }
 
 .dsh-activity-action {
@@ -286,7 +300,7 @@
   padding: 12px;
   margin-bottom: 12px;
   border-radius: 12px;
-  background: linear-gradient(135deg, var(--purple-glow), rgba(147, 51, 234, 0.1));
+  background: linear-gradient(135deg, var(--purple-glow), rgba(212, 175, 55, 0.1));
   border: 1px solid var(--line);
 }
 
@@ -308,7 +322,7 @@
 .dsh-side-stat-value {
   font-size: 20px;
   font-weight: 800;
-  color: var(--purple);
+  color: var(--purple-text);
 }
 
 .dsh-side-footer { display: flex; flex-direction: column; gap: 12px; margin-top: auto; }
@@ -325,7 +339,7 @@
   border: 1px solid var(--line);
 }
 
-.dsh-conn--up { color: var(--green); }
+.dsh-conn--up { color: var(--green-text); }
 .dsh-conn--down { color: var(--red); }
 
 .dsh-side-controls { display: flex; gap: 8px; }
@@ -404,8 +418,8 @@
 }
 
 .dsh-btn--primary {
-  background: linear-gradient(135deg, var(--purple), #9333EA);
-  color: #fff;
+  background: linear-gradient(135deg, var(--purple), #9C7A22);
+  color: var(--on-gold);
   box-shadow: 0 4px 14px var(--purple-glow);
 }
 
@@ -417,7 +431,7 @@
   border: 1px solid var(--line);
 }
 
-.dsh-btn--ghost:hover { border-color: var(--purple); color: var(--purple); }
+.dsh-btn--ghost:hover { border-color: var(--purple); color: var(--purple-text); }
 
 .dsh-stats {
   display: grid;
@@ -460,14 +474,14 @@
 
 /* Manager Agent Hero Section */
 .dsh-manager-hero {
-  background: linear-gradient(135deg, var(--purple), #9333EA);
+  background: linear-gradient(135deg, var(--purple), #9C7A22);
   border-radius: 18px;
   padding: 32px;
   margin-bottom: 32px;
-  color: #fff;
+  color: var(--on-gold);
   box-shadow: 0 12px 40px var(--purple-glow);
   animation: dshFadeUp 0.6s ease both;
-  border: 2px solid rgba(255,255,255,0.1);
+  border: 2px solid rgba(0,0,0,0.12);
 }
 
 .dsh-manager-content {
@@ -547,15 +561,15 @@
 }
 
 .dsh-manager-actions .dsh-btn {
-  background: rgba(255,255,255,0.2);
-  color: #fff;
-  border: 1px solid rgba(255,255,255,0.4);
+  background: rgba(0,0,0,0.16);
+  color: var(--on-gold);
+  border: 1px solid rgba(0,0,0,0.3);
   backdrop-filter: blur(10px);
 }
 
 .dsh-manager-actions .dsh-btn:hover {
-  background: rgba(255,255,255,0.3);
-  border-color: rgba(255,255,255,0.6);
+  background: rgba(0,0,0,0.26);
+  border-color: rgba(0,0,0,0.4);
   transform: translateY(-2px);
 }
 
@@ -674,11 +688,11 @@
   background: currentColor;
 }
 
-.dsh-badge--on   { color: var(--green); background: rgba(16,185,129,0.14); }
-.dsh-badge--busy { color: var(--gold);  background: rgba(245,158,11,0.14); }
+.dsh-badge--on   { color: var(--green-text); background: rgba(232,199,102,0.18); }
+.dsh-badge--busy { color: var(--gold-text);  background: rgba(198,142,23,0.16); }
 .dsh-badge--off  { color: var(--text2); background: var(--line); }
 .dsh-badge--err  { color: var(--red);   background: rgba(239,68,68,0.14); }
-.dsh-badge--manager { color: var(--purple); background: rgba(124,58,237,0.14); }
+.dsh-badge--manager { color: var(--purple-text); background: rgba(212,175,55,0.16); }
 
 .dsh-badge--on .dsh-dot { animation: dshPulse 1.6s infinite; }
 
@@ -726,10 +740,10 @@
 .dsh-log:nth-child(even) { background: var(--bg2); }
 
 .dsh-log-lvl { font-weight: 800; font-size: 11px; min-width: 52px; }
-.dsh-log--info .dsh-log-lvl    { color: var(--blue); }
-.dsh-log--success .dsh-log-lvl { color: var(--green); }
+.dsh-log--info .dsh-log-lvl    { color: var(--blue-text); }
+.dsh-log--success .dsh-log-lvl { color: var(--green-text); }
 .dsh-log--warn .dsh-log-lvl,
-.dsh-log--warning .dsh-log-lvl { color: var(--gold); }
+.dsh-log--warning .dsh-log-lvl { color: var(--gold-text); }
 .dsh-log--error .dsh-log-lvl   { color: var(--red); }
 
 .dsh-log-msg { flex: 1; word-break: break-word; }
@@ -747,12 +761,29 @@
 
 .dsh-empty p { font-size: 15px; margin: 12px 0 0; }
 
-.dsh-skel {
-  height: 170px;
-  border-radius: var(--radius);
-  background: linear-gradient(90deg, var(--card) 25%, var(--card-hover) 50%, var(--card) 75%);
-  background-size: 400% 100%;
-  animation: dshSkel 1.4s infinite;
+/* ═══ SKELETON LOADERS ═══ */
+.dsh-skel-base {
+  position: relative;
+  overflow: hidden;
+  background: var(--card-hover);
+}
+
+.dsh-skel-base::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent, rgba(212, 175, 55, 0.28), transparent);
+  transform: translateX(-100%);
+  animation: dshShimmer 1.6s ease-in-out infinite;
+}
+
+.dsh-skel-line  { border-radius: 6px; flex-shrink: 0; }
+.dsh-skel-block { border-radius: var(--radius); flex-shrink: 0; }
+
+.dsh-manager-hero--skeleton {
+  background: var(--card);
+  border: 1px solid var(--line);
+  box-shadow: none;
 }
 
 .dsh-modal-back {
@@ -797,9 +828,9 @@
   animation: dshSlideIn 0.3s ease;
 }
 
-.dsh-toast--success { background: var(--green); }
+.dsh-toast--success { background: var(--green); color: var(--on-gold); }
 .dsh-toast--error   { background: var(--red); }
-.dsh-toast--info    { background: var(--purple); }
+.dsh-toast--info    { background: var(--purple); color: var(--on-gold); }
 
 .dsh-burger {
   display: none;
@@ -863,9 +894,8 @@
   50% { transform: translateY(-8px); }
 }
 
-@keyframes dshSkel {
-  0% { background-position: 100% 0; }
-  100% { background-position: 0 0; }
+@keyframes dshShimmer {
+  100% { transform: translateX(100%); }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -928,31 +958,31 @@
 
 .dsh-agent-btn:hover {
   background: var(--purple);
-  color: #fff;
+  color: var(--on-gold);
   border-color: var(--purple);
   transform: translateY(-2px);
 }
 
 .dsh-agent-btn--pause {
-  background: rgba(245, 158, 11, 0.1);
-  color: var(--gold);
+  background: rgba(198, 142, 23, 0.12);
+  color: var(--gold-text);
   border-color: var(--gold);
 }
 
 .dsh-agent-btn--pause:hover {
   background: var(--gold);
-  color: #fff;
+  color: var(--on-gold);
 }
 
 .dsh-agent-btn--settings {
-  background: rgba(59, 130, 246, 0.1);
-  color: var(--blue);
+  background: rgba(156, 163, 175, 0.14);
+  color: var(--blue-text);
   border-color: var(--blue);
 }
 
 .dsh-agent-btn--settings:hover {
   background: var(--blue);
-  color: #fff;
+  color: var(--on-gold);
 }
 
 /* ═══ SETTINGS MODAL ═══ */
@@ -1115,7 +1145,7 @@
   top: 8px;
   right: 8px;
   font-size: 20px;
-  background: rgba(245, 158, 11, 0.9);
+  background: rgba(198, 142, 23, 0.92);
   width: 32px;
   height: 32px;
   border-radius: 50%;
@@ -1155,7 +1185,7 @@
 }
 
 .dsh-tab--active {
-  color: var(--purple);
+  color: var(--purple-text);
   border-bottom-color: var(--purple);
 }
 
@@ -1219,5 +1249,169 @@
 
 .dsh-agent-controls-btn:hover {
   border-color: var(--purple);
-  color: var(--purple);
+  color: var(--purple-text);
+}
+
+/* ═══ ANALYTICS CHART CARDS ═══ */
+.dsh-analytics-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+  gap: 20px;
+  margin-bottom: 32px;
+}
+
+.dsh-analytics-card {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 20px;
+  transition: transform 0.2s, box-shadow 0.2s;
+  animation: dshFadeUp 0.5s ease both;
+}
+
+.dsh-analytics-card:hover { transform: translateY(-3px); box-shadow: 0 8px 24px rgba(0,0,0,0.12); }
+.dsh-analytics-card h3 { margin: 0 0 12px; font-size: 15px; font-weight: 700; }
+
+/* ═══ ANALYTICS SUMMARY CARDS ═══ */
+.dsh-analytics-summary {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 20px;
+}
+
+.dsh-summary-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 6px;
+  border-radius: 20px;
+  padding: 28px 22px 24px;
+  color: var(--on-gold);
+  overflow: hidden;
+  border: 1px solid rgba(255,255,255,0.14);
+  box-shadow: 0 10px 30px rgba(0,0,0,0.16);
+  transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.3s;
+  animation: dshFadeUp 0.5s ease both;
+}
+
+.dsh-summary-card::after {
+  content: '';
+  position: absolute;
+  top: -50px; right: -50px;
+  width: 160px; height: 160px;
+  background: rgba(255,255,255,0.12);
+  border-radius: 50%;
+  pointer-events: none;
+}
+
+.dsh-summary-card:hover {
+  transform: translateY(-8px) scale(1.03);
+  box-shadow: 0 22px 48px rgba(0,0,0,0.32);
+}
+
+.dsh-summary-card--purple { background: linear-gradient(135deg, #D4AF37, #9C7A22); }
+.dsh-summary-card--green  { background: linear-gradient(135deg, var(--green), var(--gold)); }
+.dsh-summary-card--blue   { background: linear-gradient(135deg, var(--blue), #6B7280); }
+.dsh-summary-card--orange { background: linear-gradient(135deg, var(--orange), #7C5E12); }
+
+.dsh-summary-ring {
+  --pct: 0;
+  width: 76px; height: 76px;
+  margin-bottom: 6px;
+  border-radius: 50%;
+  background: conic-gradient(#fff calc(var(--pct) * 1%), rgba(255,255,255,0.25) 0);
+  display: grid;
+  place-items: center;
+  position: relative;
+  z-index: 1;
+  flex-shrink: 0;
+  transition: transform 0.3s;
+}
+
+.dsh-summary-card:hover .dsh-summary-ring { transform: scale(1.06); }
+
+.dsh-summary-ring::before {
+  content: '';
+  position: absolute;
+  inset: 7px;
+  border-radius: 50%;
+  background: rgba(0,0,0,0.26);
+  backdrop-filter: blur(2px);
+}
+
+.dsh-summary-ring-icon {
+  position: relative;
+  z-index: 1;
+  font-size: 26px;
+}
+
+.dsh-summary-icon-badge {
+  width: 76px; height: 76px;
+  margin-bottom: 6px;
+  display: grid;
+  place-items: center;
+  font-size: 30px;
+  background: rgba(255,255,255,0.18);
+  border-radius: 50%;
+  backdrop-filter: blur(6px);
+  position: relative;
+  z-index: 1;
+  transition: transform 0.3s;
+}
+
+.dsh-summary-card:hover .dsh-summary-icon-badge { transform: scale(1.06); }
+
+.dsh-summary-trend {
+  position: absolute;
+  top: 16px; right: 16px;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11.5px;
+  font-weight: 700;
+  padding: 5px 10px;
+  border-radius: 999px;
+  background: rgba(0,0,0,0.55);
+  backdrop-filter: blur(4px);
+}
+
+.dsh-summary-trend--up   { color: #E8C766; }
+.dsh-summary-trend--down { color: #fecaca; }
+
+.dsh-summary-label {
+  position: relative;
+  z-index: 1;
+  font-size: 12.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  opacity: 0.85;
+  margin-top: 4px;
+}
+
+.dsh-summary-value {
+  position: relative;
+  z-index: 1;
+  font-size: 38px;
+  font-weight: 800;
+  line-height: 1.1;
+}
+
+.dsh-summary-desc {
+  position: relative;
+  z-index: 1;
+  font-size: 12.5px;
+  font-weight: 500;
+  opacity: 0.85;
+}
+
+@media (max-width: 1100px) {
+  .dsh-analytics-summary { grid-template-columns: repeat(2, 1fr); }
+}
+
+@media (max-width: 480px) {
+  .dsh-analytics-summary { grid-template-columns: 1fr; }
 }
