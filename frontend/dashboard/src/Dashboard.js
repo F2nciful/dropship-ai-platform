@@ -11,6 +11,15 @@ const RESEARCH_PLATFORMS = [
   { id: 'ebay', label: 'eBay' },
 ];
 
+const PREDEFINED_PLATFORMS = [
+  { name: 'shopify', url: 'https://your-store.myshopify.com', label: 'Shopify' },
+  { name: 'woocommerce', url: 'https://your-store.example.com', label: 'WooCommerce' },
+  { name: 'etsy', url: 'https://www.etsy.com', label: 'Etsy' },
+  { name: 'walmart', url: 'https://www.walmart.com', label: 'Walmart' },
+];
+
+const EMPTY_PLATFORM_FORM = { name: '', url: '', is_active: true, configText: '{}' };
+
 const T = {
   en: {
     dashboard: 'Dashboard', agents: 'Agents', tasks: 'Tasks', logs: 'Logs',
@@ -43,7 +52,20 @@ const T = {
     retry: 'Retry', addProductTitle: 'Add to Shop', confirmAdd: 'Add to Database',
     productAdded: 'Product added to database', addFailed: 'Failed to add product',
     selectPlatform: 'Select at least one platform', noProductsFound: 'No products found',
-    reachFailed: 'Could not reach product research service'
+    reachFailed: 'Could not reach product research service',
+    platformSettings: 'Platform Settings', addPlatform: 'Add Platform', importPredefined: 'Import Predefined',
+    testConnection: 'Test', edit: 'Edit', delete: 'Delete', save: 'Save', cancel: 'Cancel',
+    platformName: 'Platform Name', platformUrl: 'Base URL', active: 'Active', builtIn: 'Built-in',
+    custom: 'Custom', advancedConfig: 'Advanced Config (JSON)',
+    platformAdded: 'Platform added', platformUpdated: 'Platform updated', platformDeleted: 'Platform deleted',
+    platformSaveFailed: 'Failed to save platform', platformDeleteFailed: 'Failed to delete platform',
+    platformActionFailed: 'Action failed — please try again',
+    invalidConfigJson: 'Advanced config must be valid JSON',
+    confirmDeletePlatform: 'Delete this platform? This cannot be undone.',
+    noPlatformsTitle: 'No Platforms Yet', noPlatformsSub: 'Add a platform to start searching it',
+    testing: 'Testing...',
+    pause: 'Pause', resume: 'Resume', settings: 'Settings',
+    selectAgentTitle: 'Select an Agent', selectAgentSub: 'Select an agent to view details'
   }
 };
 
@@ -100,17 +122,16 @@ const SkeletonManagerHero = () => (
   </div>
 );
 
-const SkeletonAgentCard = () => (
-  <div className="dsh-agent">
-    <div className="dsh-agent-top">
-      <SkelBlock w={48} h={48} radius={12} />
-      <SkelLine w={60} h={20} radius={999} />
+const SkeletonAgentListItem = () => (
+  <div className="dsh-agent-list-item">
+    <SkelBlock w={40} h={40} radius={10} />
+    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 6 }}>
+      <SkelLine w="60%" h={14} />
+      <SkelLine w={60} h={16} radius={999} />
     </div>
-    <div style={{ marginBottom: 10 }}><SkelLine w="70%" h={16} /></div>
-    <div style={{ marginBottom: 16 }}><SkelLine w="50%" h={12} /></div>
-    <div style={{ display: 'flex', gap: 8 }}>
-      <SkelBlock flex={1} h={32} radius={8} />
-      <SkelBlock flex={1} h={32} radius={8} />
+    <div style={{ display: 'flex', gap: 6 }}>
+      <SkelBlock w={30} h={30} radius={8} />
+      <SkelBlock w={30} h={30} radius={8} />
     </div>
   </div>
 );
@@ -187,7 +208,14 @@ function Dashboard({ user, onLogout }) {
   const [selectedResearchProduct, setSelectedResearchProduct] = useState(null);
   const [addingProduct, setAddingProduct] = useState(false);
 
-  const [profits, setProfits] = useState({ 
+  const [platforms, setPlatforms] = useState([]);
+  const [platformsLoading, setPlatformsLoading] = useState(true);
+  const [editingPlatform, setEditingPlatform] = useState(null);
+  const [platformForm, setPlatformForm] = useState(EMPTY_PLATFORM_FORM);
+  const [savingPlatform, setSavingPlatform] = useState(false);
+  const [testingPlatformId, setTestingPlatformId] = useState(null);
+
+  const [profits, setProfits] = useState({
     daily: 2450.50, 
     weekly: 14200, 
     growth: 23,
@@ -408,6 +436,132 @@ function Dashboard({ user, onLogout }) {
     }
   }, [selectedResearchProduct, showToast, t]);
 
+  const fetchPlatforms = useCallback(async () => {
+    setPlatformsLoading(true);
+    try {
+      const res = await fetch(`${RESEARCH_API_URL}/platforms`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      setPlatforms(Array.isArray(data) ? data : []);
+    } catch {
+      setPlatforms([]);
+    } finally {
+      setPlatformsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { fetchPlatforms(); }, [fetchPlatforms]);
+
+  const openAddPlatform = () => {
+    setPlatformForm(EMPTY_PLATFORM_FORM);
+    setEditingPlatform('new');
+  };
+
+  const openEditPlatform = (p) => {
+    setPlatformForm({
+      name: p.name,
+      url: p.url,
+      is_active: p.is_active,
+      configText: JSON.stringify(p.config || {}, null, 2),
+    });
+    setEditingPlatform(p);
+  };
+
+  const openPredefinedPlatform = (template) => {
+    setPlatformForm({ name: template.name, url: template.url, is_active: false, configText: '{}' });
+    setEditingPlatform('new');
+  };
+
+  const closePlatformModal = () => {
+    if (savingPlatform) return;
+    setEditingPlatform(null);
+  };
+
+  const savePlatform = useCallback(async () => {
+    if (!platformForm.name.trim() || !platformForm.url.trim()) {
+      showToast('Name and URL are required', 'warning');
+      return;
+    }
+
+    let config;
+    try {
+      config = JSON.parse(platformForm.configText || '{}');
+    } catch {
+      showToast(t.invalidConfigJson, 'error');
+      return;
+    }
+
+    const isNew = editingPlatform === 'new';
+    setSavingPlatform(true);
+    try {
+      const res = await fetch(
+        `${RESEARCH_API_URL}/platforms${isNew ? '' : `/${editingPlatform.id}`}`,
+        {
+          method: isNew ? 'POST' : 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            name: platformForm.name.trim(),
+            url: platformForm.url.trim(),
+            is_active: platformForm.is_active,
+            config,
+          }),
+        }
+      );
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.detail || `HTTP ${res.status}`);
+      }
+      showToast(isNew ? t.platformAdded : t.platformUpdated, 'success');
+      setEditingPlatform(null);
+      fetchPlatforms();
+    } catch (err) {
+      showToast(typeof err.message === 'string' ? err.message : t.platformSaveFailed, 'error');
+    } finally {
+      setSavingPlatform(false);
+    }
+  }, [platformForm, editingPlatform, showToast, t, fetchPlatforms]);
+
+  const deletePlatformHandler = useCallback(async (p) => {
+    if (!window.confirm(t.confirmDeletePlatform)) return;
+    try {
+      const res = await fetch(`${RESEARCH_API_URL}/platforms/${p.id}`, { method: 'DELETE' });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      showToast(t.platformDeleted, 'success');
+      fetchPlatforms();
+    } catch {
+      showToast(t.platformDeleteFailed, 'error');
+    }
+  }, [showToast, t, fetchPlatforms]);
+
+  const togglePlatformActive = useCallback(async (p) => {
+    setPlatforms(prev => prev.map(x => (x.id === p.id ? { ...x, is_active: !x.is_active } : x)));
+    try {
+      const res = await fetch(`${RESEARCH_API_URL}/platforms/${p.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ is_active: !p.is_active }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    } catch {
+      setPlatforms(prev => prev.map(x => (x.id === p.id ? { ...x, is_active: p.is_active } : x)));
+      showToast(t.platformActionFailed, 'error');
+    }
+  }, [showToast, t]);
+
+  const testPlatformHandler = useCallback(async (p) => {
+    setTestingPlatformId(p.id);
+    try {
+      const res = await fetch(`${RESEARCH_API_URL}/platforms/${p.id}/test`, { method: 'POST' });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      showToast(data.message, data.success ? 'success' : 'warning');
+    } catch {
+      showToast(t.platformActionFailed, 'error');
+    } finally {
+      setTestingPlatformId(null);
+    }
+  }, [showToast, t]);
+
   const togglePause = (agentId) => {
     setPausedAgents(prev => ({
       ...prev,
@@ -474,6 +628,7 @@ const deselectAllAgents = useCallback(() => {
     { id: 'logs', icon: '≣', label: t.logs },
     { id: 'analytics', icon: '📊', label: 'Analytics' },
     { id: 'research', icon: '📦', label: t.productsResearch },
+    { id: 'platforms', icon: '⚙️', label: t.platformSettings },
   ];
 
   return (
@@ -742,44 +897,65 @@ const deselectAllAgents = useCallback(() => {
               </div>
             </div>
 
-            {loading ? <div className="dsh-grid">{[...Array(6)].map((_, i) => <SkeletonAgentCard key={i} />)}</div> : filteredAgents.length === 0 ? (
-              agentSearch.trim() ? (
-                <EmptyState
-                  icon="🔍"
-                  title={t.noResultsTitle}
-                  subtitle={t.noResultsSub}
-                  action={<button className="dsh-btn dsh-btn--ghost" onClick={() => setAgentSearch('')}>{t.clearSearch}</button>}
-                />
-              ) : (
-                <EmptyState
-                  icon="🤖"
-                  title={t.noAgentsTitle}
-                  subtitle={t.noAgentsSub}
-                  action={<button className="dsh-btn dsh-btn--primary" onClick={() => fetchAll(false)}>⟳ {t.refresh}</button>}
-                />
-              )
-            ) : (
-              <div className="dsh-grid">
-                {filteredAgents.map((a, i) => (
-                  <div key={a.id || i} className={`dsh-agent ${pausedAgents[a.id] ? 'dsh-agent--paused' : ''}`} onClick={() => setSelectedAgent(a)}>
-                    <div className="dsh-agent-top">
-                      <span className="dsh-agent-avatar">{AGENT_ICONS[i % AGENT_ICONS.length]}</span>
-                      <StatusBadge status={pausedAgents[a.id] ? 'paused' : a.status} />
-                    </div>
-                    <h3 className="dsh-agent-name">{a.name || a.agent_name || 'Agent'}</h3>
-                    <p className="dsh-agent-role">{a.type || a.role || '—'}</p>
-                    <div className="dsh-agent-controls" onClick={(e) => e.stopPropagation()}>
-                      <button className="dsh-agent-btn dsh-agent-btn--pause" onClick={() => togglePause(a.id)}>
-                        {pausedAgents[a.id] ? '▶ Resume' : '⏸ Pause'}
-                      </button>
-                      <button className="dsh-agent-btn dsh-agent-btn--settings" onClick={() => handleOpenSettings(a)}>
-                        ⚙ Settings
-                      </button>
-                    </div>
-                  </div>
-                ))}
+            <div className="dsh-agents-layout">
+              <div className="dsh-agents-list-panel">
+                <div className="dsh-agents-list-scroll">
+                  {loading ? (
+                    [...Array(6)].map((_, i) => <SkeletonAgentListItem key={i} />)
+                  ) : filteredAgents.length === 0 ? (
+                    agentSearch.trim() ? (
+                      <EmptyState
+                        icon="🔍"
+                        title={t.noResultsTitle}
+                        subtitle={t.noResultsSub}
+                        action={<button className="dsh-btn dsh-btn--ghost" onClick={() => setAgentSearch('')}>{t.clearSearch}</button>}
+                      />
+                    ) : (
+                      <EmptyState
+                        icon="🤖"
+                        title={t.noAgentsTitle}
+                        subtitle={t.noAgentsSub}
+                        action={<button className="dsh-btn dsh-btn--primary" onClick={() => fetchAll(false)}>⟳ {t.refresh}</button>}
+                      />
+                    )
+                  ) : (
+                    filteredAgents.map((a, i) => (
+                      <div
+                        key={a.id || i}
+                        className={`dsh-agent-list-item ${selectedAgent?.id === a.id ? 'dsh-agent-list-item--selected' : ''} ${pausedAgents[a.id] ? 'dsh-agent-list-item--paused' : ''}`}
+                        onClick={() => setSelectedAgent(a)}
+                      >
+                        <span className="dsh-agent-avatar dsh-agent-avatar--sm">{AGENT_ICONS[i % AGENT_ICONS.length]}</span>
+                        <div className="dsh-agent-list-info">
+                          <div className="dsh-agent-list-name">{a.name || a.agent_name || 'Agent'}</div>
+                          <StatusBadge status={pausedAgents[a.id] ? 'paused' : a.status} />
+                        </div>
+                        <div className="dsh-agent-list-actions" onClick={(e) => e.stopPropagation()}>
+                          <button
+                            className="dsh-agent-btn dsh-agent-btn--pause dsh-agent-btn--icon"
+                            title={pausedAgents[a.id] ? t.resume : t.pause}
+                            onClick={() => togglePause(a.id)}
+                          >
+                            {pausedAgents[a.id] ? '▶' : '⏸'}
+                          </button>
+                          <button
+                            className="dsh-agent-btn dsh-agent-btn--settings dsh-agent-btn--icon"
+                            title={t.settings}
+                            onClick={() => handleOpenSettings(a)}
+                          >
+                            ⚙
+                          </button>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
               </div>
-            )}
+
+              <div className="dsh-agents-detail-panel">
+                <EmptyState icon="🤖" title={t.selectAgentTitle} subtitle={t.selectAgentSub} />
+              </div>
+            </div>
           </section>
         )}
 
@@ -866,6 +1042,68 @@ const deselectAllAgents = useCallback(() => {
                     >
                       {p._added ? '✓ Added' : `+ ${t.addToShop}`}
                     </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+        )}
+
+        {page === 'platforms' && (
+          <section className="dsh-section">
+            <div className="dsh-section-head">
+              <h2>⚙️ {t.platformSettings}</h2>
+              <div className="dsh-tools">
+                <div className="dsh-platform-import">
+                  {PREDEFINED_PLATFORMS.map(tpl => (
+                    <button key={tpl.name} className="dsh-btn dsh-btn--ghost" onClick={() => openPredefinedPlatform(tpl)}>
+                      + {tpl.label}
+                    </button>
+                  ))}
+                </div>
+                <button className="dsh-btn dsh-btn--primary" onClick={openAddPlatform}>+ {t.addPlatform}</button>
+              </div>
+            </div>
+
+            {platformsLoading ? (
+              <div className="dsh-list">{[0, 1, 2].map(i => <SkeletonTaskRow key={i} />)}</div>
+            ) : platforms.length === 0 ? (
+              <EmptyState
+                icon="⚙️"
+                title={t.noPlatformsTitle}
+                subtitle={t.noPlatformsSub}
+                action={<button className="dsh-btn dsh-btn--primary" onClick={openAddPlatform}>+ {t.addPlatform}</button>}
+              />
+            ) : (
+              <div className="dsh-list">
+                {platforms.map(p => (
+                  <div key={p.id} className="dsh-platform-row">
+                    <div className="dsh-platform-row-main">
+                      <div className="dsh-platform-row-name">
+                        {p.name}
+                        <span className="dsh-badge dsh-badge--off">{p.scraper_type === 'built_in' ? t.builtIn : t.custom}</span>
+                      </div>
+                      <div className="dsh-row-sub">{p.url}</div>
+                    </div>
+                    <label className="dsh-toggle" title={t.active}>
+                      <input type="checkbox" checked={p.is_active} onChange={() => togglePlatformActive(p)} />
+                      <span className="dsh-toggle-slider" />
+                    </label>
+                    <div className="dsh-platform-row-actions">
+                      <button
+                        className="dsh-agent-btn dsh-agent-btn--settings"
+                        onClick={() => testPlatformHandler(p)}
+                        disabled={testingPlatformId === p.id}
+                      >
+                        {testingPlatformId === p.id ? (<><span className="dsh-spinner" /> {t.testing}</>) : `🧪 ${t.testConnection}`}
+                      </button>
+                      <button className="dsh-agent-btn dsh-agent-btn--settings" onClick={() => openEditPlatform(p)}>
+                        ✎ {t.edit}
+                      </button>
+                      <button className="dsh-agent-btn dsh-agent-btn--pause" onClick={() => deletePlatformHandler(p)}>
+                        🗑 {t.delete}
+                      </button>
+                    </div>
                   </div>
                 ))}
               </div>
@@ -1060,19 +1298,6 @@ const deselectAllAgents = useCallback(() => {
         )}
       </main>
 
-      {selectedAgent && (
-        <div className="dsh-modal-back" onClick={() => setSelectedAgent(null)}>
-          <div className="dsh-modal" onClick={e => e.stopPropagation()}>
-            <h3>{selectedAgent.name || 'Agent'}</h3>
-            <div className="dsh-modal-rows">
-              <div><b>{t.status}:</b> <StatusBadge status={selectedAgent.status} /></div>
-              <div><b>{t.type}:</b> {selectedAgent.type || '—'}</div>
-            </div>
-            <button className="dsh-btn dsh-btn--primary" onClick={() => setSelectedAgent(null)}>{t.close}</button>
-          </div>
-        </div>
-      )}
-
       {settingsAgent && (
         <div className="dsh-modal-back" onClick={() => setSettingsAgent(null)}>
           <div className="dsh-modal" onClick={e => e.stopPropagation()}>
@@ -1162,6 +1387,68 @@ const deselectAllAgents = useCallback(() => {
               </button>
               <button className="dsh-btn dsh-btn--ghost" onClick={() => setSelectedResearchProduct(null)} disabled={addingProduct}>
                 {t.close}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {editingPlatform && (
+        <div className="dsh-modal-back" onClick={closePlatformModal}>
+          <div className="dsh-modal" onClick={e => e.stopPropagation()}>
+            <h3>{editingPlatform === 'new' ? t.addPlatform : `${t.edit}: ${editingPlatform.name}`}</h3>
+
+            <div className="dsh-settings-section">
+              <div className="dsh-settings-label">{t.platformName}</div>
+              <input
+                className="dsh-input dsh-platform-form-input"
+                value={platformForm.name}
+                onChange={e => setPlatformForm(f => ({ ...f, name: e.target.value }))}
+              />
+            </div>
+
+            <div className="dsh-settings-section">
+              <div className="dsh-settings-label">{t.platformUrl}</div>
+              <input
+                className="dsh-input dsh-platform-form-input"
+                value={platformForm.url}
+                onChange={e => setPlatformForm(f => ({ ...f, url: e.target.value }))}
+              />
+            </div>
+
+            <div className="dsh-settings-section">
+              <div className="dsh-settings-item">
+                <div className="dsh-settings-item-text">
+                  <div className="dsh-settings-item-name">{t.active}</div>
+                  <div className="dsh-settings-item-desc">Only active platforms are searched</div>
+                </div>
+                <label className="dsh-toggle">
+                  <input
+                    type="checkbox"
+                    checked={platformForm.is_active}
+                    onChange={e => setPlatformForm(f => ({ ...f, is_active: e.target.checked }))}
+                  />
+                  <span className="dsh-toggle-slider" />
+                </label>
+              </div>
+            </div>
+
+            <div className="dsh-settings-section">
+              <div className="dsh-settings-label">{t.advancedConfig}</div>
+              <textarea
+                className="dsh-input dsh-platform-config-textarea"
+                spellCheck={false}
+                value={platformForm.configText}
+                onChange={e => setPlatformForm(f => ({ ...f, configText: e.target.value }))}
+              />
+            </div>
+
+            <div className="dsh-settings-actions">
+              <button className="dsh-btn dsh-btn--primary" onClick={savePlatform} disabled={savingPlatform}>
+                {savingPlatform ? (<><span className="dsh-spinner" /> Saving...</>) : `✓ ${t.save}`}
+              </button>
+              <button className="dsh-btn dsh-btn--ghost" onClick={closePlatformModal} disabled={savingPlatform}>
+                {t.cancel}
               </button>
             </div>
           </div>
