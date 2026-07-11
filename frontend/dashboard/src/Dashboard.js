@@ -19,7 +19,13 @@ const T = {
     details: 'Details', close: 'Close', status: 'Status', type: 'Type',
     created: 'Created', message: 'Message', time: 'Time', backendOnline: 'Backend Online',
     backendOffline: 'Backend Offline', logout: 'Logout', manager: 'Manager Agent',
-    coordinating: 'Coordinating', tasksRunning: 'Tasks Running', uptime: 'Uptime'
+    coordinating: 'Coordinating', tasksRunning: 'Tasks Running', uptime: 'Uptime',
+    noAgentsTitle: 'No Agents Found', noAgentsSub: 'Looks like there are no agents running right now',
+    noResultsTitle: 'No Results', noResultsSub: "We couldn't find any agents matching your search",
+    noTasksTitle: 'No Tasks', noTasksSub: 'All clear! No tasks scheduled at the moment',
+    noLogsTitle: 'No Activity', noLogsSub: 'Your activity log is empty',
+    noDataTitle: 'No Data Available', noDataSub: 'Data is loading or unavailable',
+    clearSearch: 'Clear Search'
   }
 };
 
@@ -109,6 +115,15 @@ const SkeletonChart = () => (
         <SkelBlock key={i} flex={1} h={`${h}%`} radius="6px 6px 0 0" />
       ))}
     </div>
+  </div>
+);
+
+const EmptyState = ({ icon, title, subtitle, action }) => (
+  <div className="dsh-empty-state">
+    <div className="dsh-empty-icon">{icon}</div>
+    <h3 className="dsh-empty-title">{title}</h3>
+    <p className="dsh-empty-subtitle">{subtitle}</p>
+    {action && <div className="dsh-empty-action">{action}</div>}
   </div>
 );
 
@@ -256,6 +271,8 @@ function Dashboard({ user, onLogout }) {
     value: workerAgents.filter(a => (a.type || '').toLowerCase() === type).length,
     color: AGENT_TYPE_COLORS[type],
   })).filter(entry => entry.value > 0);
+
+  const hasPieData = (arr) => arr.some(d => d.value > 0);
 
   const filteredAgents = workerAgents.filter(a => {
     const name = (a.name || a.agent_name || '').toLowerCase();
@@ -613,7 +630,23 @@ const deselectAllAgents = useCallback(() => {
               </div>
             </div>
 
-            {loading ? <div className="dsh-grid">{[...Array(6)].map((_, i) => <SkeletonAgentCard key={i} />)}</div> : filteredAgents.length === 0 ? <div className="dsh-empty">🤖 {t.noAgents}</div> : (
+            {loading ? <div className="dsh-grid">{[...Array(6)].map((_, i) => <SkeletonAgentCard key={i} />)}</div> : filteredAgents.length === 0 ? (
+              agentSearch.trim() ? (
+                <EmptyState
+                  icon="🔍"
+                  title={t.noResultsTitle}
+                  subtitle={t.noResultsSub}
+                  action={<button className="dsh-btn dsh-btn--ghost" onClick={() => setAgentSearch('')}>{t.clearSearch}</button>}
+                />
+              ) : (
+                <EmptyState
+                  icon="🤖"
+                  title={t.noAgentsTitle}
+                  subtitle={t.noAgentsSub}
+                  action={<button className="dsh-btn dsh-btn--primary" onClick={() => fetchAll(false)}>⟳ {t.refresh}</button>}
+                />
+              )
+            ) : (
               <div className="dsh-grid">
                 {filteredAgents.map((a, i) => (
                   <div key={a.id || i} className={`dsh-agent ${pausedAgents[a.id] ? 'dsh-agent--paused' : ''}`} onClick={() => setSelectedAgent(a)}>
@@ -646,7 +679,14 @@ const deselectAllAgents = useCallback(() => {
             </div>
             {loading ? (
               <div className="dsh-list">{[0, 1, 2, 3, 4].map(i => <SkeletonTaskRow key={i} />)}</div>
-            ) : filteredTasks.length === 0 ? <div className="dsh-empty">📋 {t.noTasks}</div> : (
+            ) : filteredTasks.length === 0 ? (
+              <EmptyState
+                icon="✅"
+                title={t.noTasksTitle}
+                subtitle={t.noTasksSub}
+                action={<button className="dsh-btn dsh-btn--ghost" onClick={() => fetchAll(false)}>⟳ {t.refresh}</button>}
+              />
+            ) : (
               <div className="dsh-list">
                 {filteredTasks.map((x, i) => (
                   <div key={x.id || i} className="dsh-row">
@@ -665,7 +705,9 @@ const deselectAllAgents = useCallback(() => {
         {page === 'logs' && (
           <section className="dsh-section">
             <h2>{t.logs}</h2>
-            {logs.length === 0 ? <div className="dsh-empty">≣ {t.noLogs}</div> : (
+            {logs.length === 0 ? (
+              <EmptyState icon="📭" title={t.noLogsTitle} subtitle={t.noLogsSub} />
+            ) : (
               <div className="dsh-logs">
                 {logs.map((x, i) => <div key={x.id || i} className={`dsh-log dsh-log--${x.level || 'info'}`}><span className="dsh-log-lvl">{(x.level || 'INFO').toUpperCase()}</span><span className="dsh-log-msg">{x.message || x.msg || ''}</span></div>)}
               </div>
@@ -682,6 +724,9 @@ const deselectAllAgents = useCallback(() => {
               <>
               <div className="dsh-analytics-card">
                 <h3>Weekly Performance</h3>
+                {analyticsData.weeklyPerformance.length === 0 ? (
+                  <EmptyState icon="📊" title={t.noDataTitle} subtitle={t.noDataSub} />
+                ) : (
                 <ResponsiveContainer width="100%" height={300}>
   <BarChart data={analyticsData.weeklyPerformance}>
     <CartesianGrid strokeDasharray="3 3" />
@@ -693,10 +738,14 @@ const deselectAllAgents = useCallback(() => {
     <Bar dataKey="success" fill="#E8C766" name="Success Rate (%)" />
   </BarChart>
 </ResponsiveContainer>
+                )}
               </div>
 
               <div className="dsh-analytics-card">
                 <h3>Agent Performance</h3>
+                {analyticsData.agentStats.length === 0 ? (
+                  <EmptyState icon="📊" title={t.noDataTitle} subtitle={t.noDataSub} />
+                ) : (
                 <ResponsiveContainer width="100%" height={300}>
                   <LineChart data={analyticsData.agentStats}>
                     <CartesianGrid strokeDasharray="3 3" />
@@ -708,10 +757,14 @@ const deselectAllAgents = useCallback(() => {
                     <Line type="monotone" dataKey="tasks" stroke="#D4AF37" name="Tasks" />
                   </LineChart>
                 </ResponsiveContainer>
+                )}
               </div>
 
               <div className="dsh-analytics-card">
                 <h3>Tasks Distribution</h3>
+                {!hasPieData(taskDistribution) ? (
+                  <EmptyState icon="📊" title={t.noDataTitle} subtitle={t.noDataSub} />
+                ) : (
                 <ResponsiveContainer width="100%" height={300}>
                   <PieChart>
                     <Pie data={taskDistribution} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={100} label>
@@ -723,10 +776,14 @@ const deselectAllAgents = useCallback(() => {
                     <Legend />
                   </PieChart>
                 </ResponsiveContainer>
+                )}
               </div>
 
               <div className="dsh-analytics-card">
                 <h3>Agents Status Distribution</h3>
+                {!hasPieData(agentStatusDistribution) ? (
+                  <EmptyState icon="📊" title={t.noDataTitle} subtitle={t.noDataSub} />
+                ) : (
                 <ResponsiveContainer width="100%" height={300}>
                   <PieChart>
                     <Pie data={agentStatusDistribution} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={100} label>
@@ -738,10 +795,14 @@ const deselectAllAgents = useCallback(() => {
                     <Legend />
                   </PieChart>
                 </ResponsiveContainer>
+                )}
               </div>
 
               <div className="dsh-analytics-card">
                 <h3>Agents by Type</h3>
+                {agentTypeDistribution.length === 0 ? (
+                  <EmptyState icon="📊" title={t.noDataTitle} subtitle={t.noDataSub} />
+                ) : (
                 <ResponsiveContainer width="100%" height={300}>
                   <PieChart>
                     <Pie data={agentTypeDistribution} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={100} label>
@@ -753,6 +814,7 @@ const deselectAllAgents = useCallback(() => {
                     <Legend />
                   </PieChart>
                 </ResponsiveContainer>
+                )}
               </div>
               </>
               )}

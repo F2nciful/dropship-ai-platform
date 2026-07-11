@@ -749,17 +749,54 @@
 .dsh-log-msg { flex: 1; word-break: break-word; }
 .dsh-log-time { color: var(--text2); font-size: 11.5px; white-space: nowrap; }
 
-.dsh-empty {
+/* ═══ EMPTY STATES ═══ */
+.dsh-empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
   text-align: center;
-  padding: 60px 20px;
-  color: var(--text2);
-  font-size: 40px;
+  padding: 56px 24px;
   background: var(--card);
-  border: 1px dashed var(--line);
+  border: 1px solid var(--line);
   border-radius: var(--radius);
+  animation: dshFadeUp 0.4s ease both;
 }
 
-.dsh-empty p { font-size: 15px; margin: 12px 0 0; }
+.dsh-empty-icon {
+  width: 72px;
+  height: 72px;
+  display: grid;
+  place-items: center;
+  font-size: 32px;
+  border-radius: 50%;
+  background: rgba(212, 175, 55, 0.12);
+  color: var(--purple-text);
+  margin-bottom: 16px;
+}
+
+.dsh-empty-title {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.dsh-empty-subtitle {
+  margin: 6px 0 0;
+  font-size: 14px;
+  color: var(--text2);
+  max-width: 360px;
+  line-height: 1.5;
+}
+
+.dsh-empty-action { margin-top: 20px; }
+
+@media (max-width: 480px) {
+  .dsh-empty-state { padding: 40px 18px; }
+  .dsh-empty-icon { width: 60px; height: 60px; font-size: 26px; margin-bottom: 12px; }
+  .dsh-empty-title { font-size: 16px; }
+  .dsh-empty-subtitle { font-size: 13px; }
+}
 
 /* ═══ SKELETON LOADERS ═══ */
 .dsh-skel-base {
