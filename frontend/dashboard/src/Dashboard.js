@@ -44,7 +44,7 @@ const DEFAULT_PAGE_OPTIONS = [
   { value: 'dashboard', label: 'Dashboard' },
   { value: 'agents', label: 'Agents' },
   { value: 'research', label: 'Products Research' },
-  { value: 'myproducts', label: 'My Products' },
+  { value: 'products', label: 'Product Management' },
   { value: 'analytics', label: 'Analytics' },
 ];
 
@@ -59,32 +59,44 @@ const NOTIF_ICONS = { success: '✓', info: 'ℹ', warning: '⚠', error: '✕' 
 
 const EXPORT_COLUMNS = [
   { key: 'name', label: 'Name' },
-  { key: 'price', label: 'Price' },
+  { key: 'supplier_price', label: 'Supplier Price' },
+  { key: 'selling_price', label: 'Selling Price' },
   { key: 'currency', label: 'Currency' },
   { key: 'platform', label: 'Platform' },
+  { key: 'category', label: 'Category' },
+  { key: 'quantity', label: 'Quantity' },
+  { key: 'stock_status', label: 'Stock Status' },
+  { key: 'status', label: 'Status' },
   { key: 'rating', label: 'Rating' },
-  { key: 'in_stock', label: 'In Stock' },
-  { key: 'seller_name', label: 'Seller' },
-  { key: 'description', label: 'Description' },
-  { key: 'created_at', label: 'Date Added' },
+  { key: 'updated_at', label: 'Last Updated' },
 ];
 
 const KEYBOARD_SHORTCUTS = [
   { keys: 'Ctrl + K', description: 'Focus product search' },
   { keys: 'Ctrl + D', description: 'Go to Dashboard' },
-  { keys: 'Ctrl + P', description: 'Go to My Products' },
+  { keys: 'Ctrl + P', description: 'Go to Product Management' },
   { keys: 'Esc', description: 'Close any open modal' },
   { keys: '?', description: 'Show this shortcuts panel' },
 ];
 
-const MARGIN_OPTIONS = [
-  { value: 50, strategy: 'budget', label: '50%' },
-  { value: 100, strategy: 'mid', label: '100%' },
-  { value: 150, strategy: 'premium', label: '150%' },
-  { value: 200, strategy: 'aggressive', label: '200%' },
+const STRATEGY_LABELS = { budget: 'Budget', mid: 'Mid-Range', premium: 'Premium', aggressive: 'Aggressive', custom: 'Custom' };
+
+const INVENTORY_STATUS_LABELS = {
+  'in-stock': 'In Stock',
+  'low-stock': 'Low Stock',
+  'out-of-stock': 'Out of Stock',
+  overstocked: 'Overstocked',
+};
+
+const INVENTORY_STATUS_FILTERS = [
+  { value: '', label: 'All Statuses' },
+  { value: 'in-stock', label: 'In Stock' },
+  { value: 'low-stock', label: 'Low Stock' },
+  { value: 'out-of-stock', label: 'Out of Stock' },
+  { value: 'overstocked', label: 'Overstocked' },
 ];
 
-const STRATEGY_LABELS = { budget: 'Budget', mid: 'Mid-Range', premium: 'Premium', aggressive: 'Aggressive', custom: 'Custom' };
+const STOCK_UPDATE_REASONS = ['restock', 'sale', 'correction', 'damaged', 'return'];
 
 function loadSettings() {
   try {
@@ -332,10 +344,7 @@ const StarRating = ({ rating, size }) => {
   );
 };
 
-const ProductDetailModal = ({
-  product, onClose, onAddToShop, adding, closing,
-  onAnalyze, analyzing, analysis, analysisError, onApplyDescription, onPriceThis,
-}) => {
+const ProductDetailModal = ({ product, onClose, onAnalyzeAndSave, analyzing, closing }) => {
   if (!product) return null;
   const currency = product.currency || 'USD';
 
@@ -394,231 +403,11 @@ const ProductDetailModal = ({
           )}
         </div>
 
-        {onAnalyze && (
-          <div className="dsh-ai-section">
-            {!analysis && !analyzing && (
-              <button className="dsh-btn dsh-btn--ghost dsh-ai-btn" onClick={onAnalyze}>✨ AI Analysis</button>
-            )}
-
-            {analyzing && (
-              <div className="dsh-ai-loading"><span className="dsh-spinner" /> Analyzing with AI...</div>
-            )}
-
-            {analysisError && !analyzing && !analysis && (
-              <div className="dsh-ai-error">⚠️ {analysisError}</div>
-            )}
-
-            {analysis && !analyzing && (
-              <div className="dsh-ai-result">
-                <div className="dsh-ai-result-header">✨ AI Analysis</div>
-
-                {analysis.description && (
-                  <div className="dsh-ai-block">
-                    <span className="dsh-ai-label">Suggested Description</span>
-                    <p className="dsh-ai-desc">{analysis.description}</p>
-                    {onApplyDescription && (
-                      <button className="dsh-btn dsh-btn--ghost dsh-ai-apply-btn" onClick={onApplyDescription}>
-                        ✓ Apply Description
-                      </button>
-                    )}
-                  </div>
-                )}
-
-                <div className="dsh-ai-grid">
-                  {analysis.suggested_price != null && (
-                    <div className="dsh-ai-stat">
-                      <span className="dsh-ai-label">Suggested Price</span>
-                      <span className="dsh-ai-value">{currency} {Number(analysis.suggested_price).toFixed(2)}</span>
-                    </div>
-                  )}
-                  {analysis.profit_margin_percent != null && (
-                    <div className="dsh-ai-stat">
-                      <span className="dsh-ai-label">Profit Margin</span>
-                      <span className="dsh-ai-value">{Number(analysis.profit_margin_percent).toFixed(1)}%</span>
-                    </div>
-                  )}
-                  {analysis.target_audience && (
-                    <div className="dsh-ai-stat">
-                      <span className="dsh-ai-label">Target Audience</span>
-                      <span className="dsh-ai-value">{analysis.target_audience}</span>
-                    </div>
-                  )}
-                </div>
-
-                {analysis.keywords?.length > 0 && (
-                  <div className="dsh-ai-keywords">
-                    {analysis.keywords.map(k => <span key={k} className="dsh-badge dsh-badge--off">{k}</span>)}
-                  </div>
-                )}
-
-                <button className="dsh-btn dsh-btn--ghost dsh-ai-btn" onClick={onAnalyze}>🔄 Re-analyze</button>
-              </div>
-            )}
-          </div>
-        )}
-
         <div className="dsh-settings-actions">
-          {onAddToShop && (
-            <button className="dsh-btn dsh-btn--primary" onClick={onAddToShop} disabled={adding || product._added}>
-              {adding ? (<><span className="dsh-spinner" /> Adding...</>) : product._added ? '✓ Added' : '✓ Add to Shop'}
-            </button>
-          )}
-          {onPriceThis && (
-            <button className="dsh-btn dsh-btn--ghost" onClick={onPriceThis}>💰 Price This</button>
-          )}
-          <button className="dsh-btn dsh-btn--ghost" onClick={onClose} disabled={adding}>Close</button>
-        </div>
-      </div>
-    </div>
-  );
-};
-
-const PriceHistoryModal = ({ modal, loading, onClose }) => {
-  if (!modal) return null;
-  const { product, data, error } = modal;
-  const entries = data?.entries || [];
-  const currency = entries[0]?.currency || 'USD';
-  const chartData = entries.map(e => ({
-    date: new Date(e.recorded_at).toLocaleDateString(),
-    price: e.price,
-  }));
-  const changePercent = data?.change_percent;
-  const priceDropped = changePercent != null && changePercent < 0;
-  const priceIncreased = changePercent != null && changePercent > 0;
-
-  return (
-    <div className="dsh-modal-back" onClick={onClose}>
-      <div className="dsh-modal dsh-price-history-modal" onClick={e => e.stopPropagation()}>
-        <h3>📈 Price History</h3>
-        <p className="dsh-price-history-product" title={product.name}>{product.name}</p>
-
-        {loading ? (
-          <div className="dsh-ai-loading"><span className="dsh-spinner" /> Loading price history...</div>
-        ) : error ? (
-          <div className="dsh-ai-error">⚠️ {error}</div>
-        ) : entries.length === 0 ? (
-          <div className="dsh-empty-state" style={{ border: 'none', background: 'transparent', padding: '20px 0' }}>
-            <div className="dsh-empty-icon">📈</div>
-            <h3 className="dsh-empty-title">No Price Data</h3>
-            <p className="dsh-empty-subtitle">No price history recorded for this product yet</p>
-          </div>
-        ) : (
-          <>
-            {changePercent != null && (
-              <div className={`dsh-price-change ${priceDropped ? 'dsh-price-change--down' : priceIncreased ? 'dsh-price-change--up' : ''}`}>
-                <span className="dsh-price-change-arrow">{priceDropped ? '↓' : priceIncreased ? '↑' : '→'}</span>
-                <span>
-                  {Math.abs(changePercent).toFixed(1)}% {priceDropped ? 'decrease' : priceIncreased ? 'increase' : 'change'} since first recorded
-                </span>
-              </div>
-            )}
-
-            <ResponsiveContainer width="100%" height={220}>
-              <LineChart data={chartData}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="date" />
-                <YAxis domain={['auto', 'auto']} />
-                <Tooltip />
-                <Line type="monotone" dataKey="price" stroke="#D4AF37" strokeWidth={2} dot={{ r: 3 }} />
-              </LineChart>
-            </ResponsiveContainer>
-
-            <div className="dsh-price-history-summary">
-              <div className="dsh-ai-stat">
-                <span className="dsh-ai-label">First Price</span>
-                <span className="dsh-ai-value">{currency} {Number(data.first_price).toFixed(2)}</span>
-              </div>
-              <div className="dsh-ai-stat">
-                <span className="dsh-ai-label">Latest Price</span>
-                <span className="dsh-ai-value">{currency} {Number(data.latest_price).toFixed(2)}</span>
-              </div>
-            </div>
-          </>
-        )}
-
-        <div className="dsh-settings-actions">
-          <button className="dsh-btn dsh-btn--ghost" onClick={onClose}>Close</button>
-        </div>
-      </div>
-    </div>
-  );
-};
-
-const PricingHistoryModal = ({ modal, loading, onClose, onExport }) => {
-  if (!modal) return null;
-  const { product, data, error } = modal;
-  const entries = data?.entries || [];
-  const currency = product.currency || 'USD';
-  const chartData = entries.map(e => ({
-    date: new Date(e.created_at).toLocaleDateString(),
-    cost: e.cost_price,
-    suggested: e.suggested_price,
-    applied: e.applied_price,
-  }));
-
-  return (
-    <div className="dsh-modal-back" onClick={onClose}>
-      <div className="dsh-modal dsh-pricing-history-modal" onClick={e => e.stopPropagation()}>
-        <h3>💰 Pricing History</h3>
-        <p className="dsh-price-history-product" title={product.name}>{product.name}</p>
-
-        {loading ? (
-          <div className="dsh-ai-loading"><span className="dsh-spinner" /> Loading pricing history...</div>
-        ) : error ? (
-          <div className="dsh-ai-error">⚠️ {error}</div>
-        ) : entries.length === 0 ? (
-          <div className="dsh-empty-state" style={{ border: 'none', background: 'transparent', padding: '20px 0' }}>
-            <div className="dsh-empty-icon">💰</div>
-            <h3 className="dsh-empty-title">No Pricing History</h3>
-            <p className="dsh-empty-subtitle">Run a pricing analysis for this product to start building history</p>
-          </div>
-        ) : (
-          <>
-            <ResponsiveContainer width="100%" height={220}>
-              <LineChart data={chartData}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="date" />
-                <YAxis domain={['auto', 'auto']} />
-                <Tooltip />
-                <Legend />
-                <Line type="monotone" dataKey="cost" name="Cost" stroke="#9CA3AF" strokeWidth={2} dot={{ r: 3 }} />
-                <Line type="monotone" dataKey="suggested" name="Suggested" stroke="#4A7FD6" strokeWidth={2} dot={{ r: 3 }} />
-                <Line type="monotone" dataKey="applied" name="Applied" stroke="#D4AF37" strokeWidth={2} dot={{ r: 3 }} />
-              </LineChart>
-            </ResponsiveContainer>
-
-            <div className="dsh-pricing-history-table-wrap">
-              <table className="dsh-pricing-history-table">
-                <thead>
-                  <tr>
-                    <th>Date</th>
-                    <th>Cost</th>
-                    <th>Suggested</th>
-                    <th>Applied</th>
-                    <th>Margin</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {[...entries].reverse().map(e => (
-                    <tr key={e.id}>
-                      <td>{new Date(e.created_at).toLocaleDateString()}</td>
-                      <td>{currency} {Number(e.cost_price).toFixed(2)}</td>
-                      <td>{e.suggested_price != null ? `${currency} ${Number(e.suggested_price).toFixed(2)}` : '—'}</td>
-                      <td>{e.applied_price != null ? `${currency} ${Number(e.applied_price).toFixed(2)}` : '—'}</td>
-                      <td>{e.profit_margin != null ? `${Number(e.profit_margin).toFixed(1)}%` : '—'}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </>
-        )}
-
-        <div className="dsh-settings-actions">
-          {entries.length > 0 && (
-            <button className="dsh-btn dsh-btn--ghost" onClick={onExport}>⬇ Export</button>
-          )}
-          <button className="dsh-btn dsh-btn--ghost" onClick={onClose}>Close</button>
+          <button className="dsh-btn dsh-btn--primary" onClick={onAnalyzeAndSave} disabled={analyzing}>
+            {analyzing ? (<><span className="dsh-spinner" /> Analyzing (pricing + inventory + marketing)...</>) : '✨ Analyze & Save'}
+          </button>
+          <button className="dsh-btn dsh-btn--ghost" onClick={onClose} disabled={analyzing}>Close</button>
         </div>
       </div>
     </div>
@@ -650,16 +439,10 @@ function Dashboard({ user, onLogout }) {
   const [notifications, setNotifications] = useState(loadNotifications);
   const [notifCenterOpen, setNotifCenterOpen] = useState(false);
   const [shortcutsModalOpen, setShortcutsModalOpen] = useState(false);
-  const [exportModalOpen, setExportModalOpen] = useState(false);
-  const [exportForm, setExportForm] = useState({
-    format: 'csv',
-    columns: EXPORT_COLUMNS.map(c => c.key),
-    dateFrom: '',
-    dateTo: '',
-  });
   const [reportModal, setReportModal] = useState(null);
   const [reportLoading, setReportLoading] = useState(false);
 
+  // ── Product Management: raw multi-platform search (left panel "Search New" sub-mode) ──
   const [researchQuery, setResearchQuery] = useState('');
   const [researchPlatforms, setResearchPlatforms] = useState(() => {
     const defaults = loadSettings().defaultPlatforms || ['aliexpress', 'amazon', 'ebay'];
@@ -671,14 +454,7 @@ function Dashboard({ user, onLogout }) {
   const [researchError, setResearchError] = useState(null);
   const [productModal, setProductModal] = useState(null);
   const [productModalClosing, setProductModalClosing] = useState(false);
-  const [addingProduct, setAddingProduct] = useState(false);
-  const [aiAnalyzing, setAiAnalyzing] = useState(false);
-  const [aiAnalysis, setAiAnalysis] = useState(null);
-  const [aiAnalysisError, setAiAnalysisError] = useState(null);
-
-  const [priceHistoryModal, setPriceHistoryModal] = useState(null);
-  const [priceHistoryLoading, setPriceHistoryLoading] = useState(false);
-  const [refreshingPrices, setRefreshingPrices] = useState(false);
+  const [analyzingProduct, setAnalyzingProduct] = useState(false);
 
   const [priceMin, setPriceMin] = useState('');
   const [priceMax, setPriceMax] = useState('');
@@ -687,26 +463,51 @@ function Dashboard({ user, onLogout }) {
   const [inStockOnly, setInStockOnly] = useState(false);
   const [filtersOpen, setFiltersOpen] = useState(false);
 
-  const [myProducts, setMyProducts] = useState([]);
-  const [myProductsTotal, setMyProductsTotal] = useState(0);
-  const [myProductsLoading, setMyProductsLoading] = useState(true);
-  const [myProductsSearch, setMyProductsSearch] = useState('');
-  const [myProductsPageNum, setMyProductsPageNum] = useState(1);
+  // ── Product Management: left panel — saved products ──
+  const [leftPanelMode, setLeftPanelMode] = useState('saved');
+  const [savedProducts, setSavedProducts] = useState([]);
+  const [savedProductsTotal, setSavedProductsTotal] = useState(0);
+  const [savedProductsLoading, setSavedProductsLoading] = useState(true);
+  const [savedSearchText, setSavedSearchText] = useState('');
+  const [savedStatusFilter, setSavedStatusFilter] = useState('');
+  const [savedStockStatusFilter, setSavedStockStatusFilter] = useState('');
+  const [savedCategoryFilter, setSavedCategoryFilter] = useState('');
+  const [savedSortBy, setSavedSortBy] = useState('');
+  const [savedSortDir, setSavedSortDir] = useState('desc');
   const [selectedProductIds, setSelectedProductIds] = useState({});
-  const [bulkDeleting, setBulkDeleting] = useState(false);
+  const [bulkActionRunning, setBulkActionRunning] = useState(false);
   const [deletingProductId, setDeletingProductId] = useState(null);
+  const [dashboardStats, setDashboardStats] = useState(null);
 
-  const [pricingSearch, setPricingSearch] = useState('');
-  const [pricingSelectedProduct, setPricingSelectedProduct] = useState(null);
-  const [pricingCostPrice, setPricingCostPrice] = useState('');
-  const [pricingPlatform, setPricingPlatform] = useState('aliexpress');
-  const [pricingMargin, setPricingMargin] = useState(100);
-  const [pricingLoading, setPricingLoading] = useState(false);
-  const [pricingResult, setPricingResult] = useState(null);
-  const [pricingError, setPricingError] = useState(null);
-  const [pricingApplying, setPricingApplying] = useState(false);
-  const [pricingHistoryModal, setPricingHistoryModal] = useState(null);
-  const [pricingHistoryLoading, setPricingHistoryLoading] = useState(false);
+  // ── Product Management: right panel — selected product + tabs ──
+  const [selectedManagedProduct, setSelectedManagedProduct] = useState(null);
+  const [selectedProductLoading, setSelectedProductLoading] = useState(false);
+  const [managementTab, setManagementTab] = useState('details');
+  const [detailsForm, setDetailsForm] = useState({ name: '', description: '', category: '', status: 'active', reorderLevel: '' });
+  const [savingDetails, setSavingDetails] = useState(false);
+
+  const [pricingEditPrice, setPricingEditPrice] = useState('');
+  const [pricingStrategySelection, setPricingStrategySelection] = useState('mid');
+  const [savingPricing, setSavingPricing] = useState(false);
+
+  const [inventoryDelta, setInventoryDelta] = useState('');
+  const [inventoryReason, setInventoryReason] = useState('restock');
+  const [savingInventoryChange, setSavingInventoryChange] = useState(false);
+
+  const [tabRecommendation, setTabRecommendation] = useState(null);
+  const [tabRecommendationLoading, setTabRecommendationLoading] = useState(false);
+
+  const [bulkStockModalOpen, setBulkStockModalOpen] = useState(false);
+  const [bulkStockDelta, setBulkStockDelta] = useState('');
+  const [bulkStockReason, setBulkStockReason] = useState('correction');
+  const [bulkStockSaving, setBulkStockSaving] = useState(false);
+  const [bulkStatusValue, setBulkStatusValue] = useState('active');
+  const [bulkPricingStrategy, setBulkPricingStrategy] = useState('mid');
+
+  const [exportModalOpen, setExportModalOpen] = useState(false);
+  const [exportForm, setExportForm] = useState({
+    format: 'csv', columns: EXPORT_COLUMNS.map(c => c.key), dateFrom: '', dateTo: '',
+  });
 
   const [platforms, setPlatforms] = useState([]);
   const [platformsLoading, setPlatformsLoading] = useState(true);
@@ -820,20 +621,15 @@ function Dashboard({ user, onLogout }) {
   const fetchAll = useCallback(async (silent = true) => {
     if (!silent) setRefreshingAll(true);
     try {
-      const [aRes, tRes, lRes, pRes] = await Promise.allSettled([
+      const [aRes, tRes, lRes] = await Promise.allSettled([
         fetch(`${API_URL}/agents`).then(r => r.json()),
         fetch(`${API_URL}/tasks`).then(r => r.json()),
         fetch(`${API_URL}/logs`).then(r => r.json()),
-        fetch(`${RESEARCH_API_URL}/products?limit=200`).then(r => r.json()),
       ]);
 
       if (aRes.status === 'fulfilled') setAgents(normalizeList(aRes.value, 'agents'));
       if (tRes.status === 'fulfilled') setTasks(normalizeList(tRes.value, 'tasks'));
       if (lRes.status === 'fulfilled') setLogs(normalizeList(lRes.value, 'logs'));
-      if (pRes.status === 'fulfilled') {
-        setMyProducts(pRes.value.products || []);
-        setMyProductsTotal(pRes.value.total || 0);
-      }
 
       const anyOk = [aRes, tRes, lRes].some(r => r.status === 'fulfilled');
       setBackendUp(anyOk);
@@ -943,37 +739,20 @@ function Dashboard({ user, onLogout }) {
     }
   });
 
-  const pricingSearchResults = pricingSearch.trim()
-    ? myProducts.filter(p => {
-        const q = pricingSearch.trim().toLowerCase();
-        return (p.name || '').toLowerCase().includes(q) || (p.url || '').toLowerCase().includes(q);
-      })
-    : myProducts;
-
-  const MY_PRODUCTS_PAGE_SIZE = 20;
-  const filteredMyProducts = myProducts.filter(p => {
-    if (!myProductsSearch.trim()) return true;
-    const q = myProductsSearch.toLowerCase();
-    return (p.name || '').toLowerCase().includes(q) || (p.platform || '').toLowerCase().includes(q);
-  });
-  const myProductsTotalPages = Math.max(1, Math.ceil(filteredMyProducts.length / MY_PRODUCTS_PAGE_SIZE));
-  const myProductsPageClamped = Math.min(myProductsPageNum, myProductsTotalPages);
-  const paginatedMyProducts = filteredMyProducts.slice(
-    (myProductsPageClamped - 1) * MY_PRODUCTS_PAGE_SIZE,
-    myProductsPageClamped * MY_PRODUCTS_PAGE_SIZE
-  );
   const selectedProductCount = Object.keys(selectedProductIds).length;
-  const allOnPageSelected = paginatedMyProducts.length > 0 && paginatedMyProducts.every(p => selectedProductIds[p.id]);
+  const allSavedSelected = savedProducts.length > 0 && savedProducts.every(p => selectedProductIds[p.id]);
 
-  const toggleSelectAllOnPage = () => {
+  const toggleSelectAllSaved = () => {
     setSelectedProductIds(prev => {
       const next = { ...prev };
-      paginatedMyProducts.forEach(p => {
-        if (allOnPageSelected) delete next[p.id]; else next[p.id] = true;
+      savedProducts.forEach(p => {
+        if (allSavedSelected) delete next[p.id]; else next[p.id] = true;
       });
       return next;
     });
   };
+
+  const savedCategories = [...new Set(savedProducts.map(p => p.category).filter(Boolean))];
 
   const exportCSV = () => {
     const rows = [['Name', 'Status', 'Type'], ...agents.map(a => [a.name || '', a.status || '', a.type || ''])];
@@ -1034,112 +813,17 @@ function Dashboard({ user, onLogout }) {
   }, [researchQuery, researchPlatforms, showToast, t, appSettings.defaultMaxResults, addNotification, sortBy, priceMin, priceMax, minRating, inStockOnly]);
 
   const openProductModal = (product, mode) => {
-    setAiAnalysis(null);
-    setAiAnalysisError(null);
     setProductModal({ product, mode });
   };
 
   const closeProductModal = useCallback(() => {
-    if (addingProduct) return;
+    if (analyzingProduct) return;
     setProductModalClosing(true);
     setTimeout(() => {
       setProductModal(null);
       setProductModalClosing(false);
-      setAiAnalysis(null);
-      setAiAnalysisError(null);
     }, 200);
-  }, [addingProduct]);
-
-  const confirmAddToShop = useCallback(async () => {
-    if (!productModal?.product) return;
-    const p = productModal.product;
-    setAddingProduct(true);
-    try {
-      const res = await fetch(`${RESEARCH_API_URL}/add-to-database`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: p.name,
-          price: p.price,
-          currency: p.currency || 'USD',
-          image_url: p.image_url,
-          url: p.url,
-          description: p.description,
-          rating: p.rating,
-          reviews_count: p.reviews_count,
-          orders_count: p.orders_count,
-          shipping_price: p.shipping_price,
-          seller_name: p.seller_name,
-          in_stock: p.in_stock !== false,
-          platform: p.platform,
-          raw_data: p.raw_data || {},
-        }),
-      });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      showToast(t.productAdded, 'success');
-      addNotification('success', `Added "${p.name}" to your products`);
-      if (p.in_stock === false) {
-        addNotification('warning', `"${p.name}" is currently out of stock`);
-      }
-      setResearchResults(prev => prev.map(item => (item === p ? { ...item, _added: true } : item)));
-      closeProductModal();
-    } catch {
-      showToast(t.addFailed, 'error');
-    } finally {
-      setAddingProduct(false);
-    }
-  }, [productModal, showToast, t, closeProductModal, addNotification]);
-
-  const analyzeProductWithAi = useCallback(async () => {
-    if (!productModal?.product) return;
-    const p = productModal.product;
-    setAiAnalyzing(true);
-    setAiAnalysisError(null);
-    try {
-      const res = await fetch(`${RESEARCH_API_URL}/analyze-product`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: p.name,
-          price: p.price,
-          currency: p.currency || 'USD',
-          description: p.description,
-          rating: p.rating,
-          reviews_count: p.reviews_count,
-          platform: p.platform,
-        }),
-      });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json();
-      if (!data.success) {
-        setAiAnalysisError(data.message || 'AI analysis unavailable');
-        showToast(data.message || 'AI analysis unavailable', 'warning');
-      } else {
-        setAiAnalysis(data);
-      }
-    } catch {
-      setAiAnalysisError('Could not reach the AI analysis service');
-      showToast('Could not reach the AI analysis service', 'error');
-    } finally {
-      setAiAnalyzing(false);
-    }
-  }, [productModal, showToast]);
-
-  const openPriceHistory = useCallback(async (product) => {
-    setPriceHistoryModal({ product, data: null, error: null });
-    setPriceHistoryLoading(true);
-    try {
-      const res = await fetch(`${RESEARCH_API_URL}/product/${product.id}/price-history`);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json();
-      setPriceHistoryModal({ product, data, error: null });
-    } catch {
-      setPriceHistoryModal({ product, data: null, error: 'Could not load price history' });
-      showToast('Could not load price history', 'error');
-    } finally {
-      setPriceHistoryLoading(false);
-    }
-  }, [showToast]);
+  }, [analyzingProduct]);
 
   const fetchPlatforms = useCallback(async () => {
     setPlatformsLoading(true);
@@ -1269,70 +953,97 @@ function Dashboard({ user, onLogout }) {
     }
   }, [showToast, t, addNotification]);
 
-  const fetchMyProducts = useCallback(async () => {
-    setMyProductsLoading(true);
+  const fetchSavedProducts = useCallback(async () => {
+    setSavedProductsLoading(true);
     try {
-      const res = await fetch(`${RESEARCH_API_URL}/products?limit=200`);
+      const params = new URLSearchParams();
+      if (savedSearchText.trim()) params.set('search', savedSearchText.trim());
+      if (savedStatusFilter) params.set('status', savedStatusFilter);
+      if (savedStockStatusFilter) params.set('stock_status', savedStockStatusFilter);
+      if (savedCategoryFilter) params.set('category', savedCategoryFilter);
+      if (savedSortBy) {
+        params.set('sort_by', savedSortBy);
+        params.set('sort_dir', savedSortDir);
+      }
+      const res = await fetch(`${RESEARCH_API_URL}/manager/products?${params.toString()}`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
-      setMyProducts(data.products || []);
-      setMyProductsTotal(data.total || 0);
+      setSavedProducts(data.products || []);
+      setSavedProductsTotal(data.total || 0);
     } catch {
-      setMyProducts([]);
+      setSavedProducts([]);
       showToast('Could not load saved products', 'error');
     } finally {
-      setMyProductsLoading(false);
+      setSavedProductsLoading(false);
     }
-  }, [showToast]);
+  }, [savedSearchText, savedStatusFilter, savedStockStatusFilter, savedCategoryFilter, savedSortBy, savedSortDir, showToast]);
 
-  useEffect(() => { if (page === 'myproducts' || page === 'pricing') fetchMyProducts(); }, [page, fetchMyProducts]);
-
-  const applyAiDescription = useCallback(async () => {
-    if (!productModal?.product || !aiAnalysis?.description) return;
-    const description = aiAnalysis.description;
-
-    if (productModal.mode === 'saved') {
-      try {
-        const res = await fetch(`${RESEARCH_API_URL}/product/${productModal.product.id}`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ description }),
-        });
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        showToast('Description updated', 'success');
-        setProductModal(prev => (prev ? { ...prev, product: { ...prev.product, description } } : prev));
-        fetchMyProducts();
-      } catch {
-        showToast('Failed to update product', 'error');
-      }
-    } else {
-      setProductModal(prev => (prev ? { ...prev, product: { ...prev.product, description } } : prev));
-      showToast('Description applied — click Add to Shop to save it', 'success');
-    }
-  }, [productModal, aiAnalysis, showToast, fetchMyProducts]);
-
-  const refreshAllPrices = useCallback(async () => {
-    setRefreshingPrices(true);
+  const fetchDashboardStats = useCallback(async () => {
     try {
-      const res = await fetch(`${RESEARCH_API_URL}/products/refresh-prices`, { method: 'POST' });
+      const res = await fetch(`${RESEARCH_API_URL}/manager/dashboard`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json();
-      showToast(`Refreshed ${data.updated_count} product(s)${data.failed_count ? `, ${data.failed_count} unchanged/failed` : ''}`, 'success');
-      const changed = (data.results || []).filter(r => r.changed);
-      if (changed.length === 1) {
-        const r = changed[0];
-        addNotification('info', `Price changed for "${r.name}": ${r.old_price ?? '—'} → ${r.new_price}`);
-      } else if (changed.length > 1) {
-        addNotification('info', `Prices changed for ${changed.length} product(s)`);
-      }
-      fetchMyProducts();
+      setDashboardStats(await res.json());
     } catch {
-      showToast('Failed to refresh prices', 'error');
-      addNotification('error', 'Price refresh failed');
-    } finally {
-      setRefreshingPrices(false);
+      setDashboardStats(null);
     }
-  }, [showToast, fetchMyProducts, addNotification]);
+  }, []);
+
+  useEffect(() => {
+    if (page !== 'products') return;
+    fetchSavedProducts();
+    fetchDashboardStats();
+  }, [page, fetchSavedProducts, fetchDashboardStats]);
+
+  const analyzeAndSaveProduct = useCallback(async () => {
+    if (!productModal?.product) return;
+    const p = productModal.product;
+    if (p.price == null) {
+      showToast('This product has no price — cannot analyze it', 'warning');
+      return;
+    }
+    setAnalyzingProduct(true);
+    try {
+      const res = await fetch(`${RESEARCH_API_URL}/manager/analyze-product`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: p.name,
+          price: p.price,
+          currency: p.currency || 'USD',
+          image_url: p.image_url,
+          url: p.url,
+          description: p.description,
+          rating: p.rating,
+          reviews_count: p.reviews_count,
+          orders_count: p.orders_count,
+          shipping_price: p.shipping_price,
+          seller_name: p.seller_name,
+          sku: p.sku,
+          platform: p.platform,
+          raw_data: p.raw_data || {},
+          search_query: researchQuery.trim() || null,
+          initial_quantity: 0,
+          reorder_level: 10,
+          strategy: 'mid',
+        }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.detail || `HTTP ${res.status}`);
+      }
+      const data = await res.json();
+      showToast(`"${p.name}" analyzed and saved`, 'success');
+      addNotification('success', `Saved "${p.name}" — priced at ${data.currency} ${Number(data.selling_price).toFixed(2)}`);
+      setResearchResults(prev => prev.map(item => (item === p ? { ...item, _added: true } : item)));
+      closeProductModal();
+      fetchSavedProducts();
+      fetchDashboardStats();
+    } catch (err) {
+      showToast(err.message || 'Could not analyze this product', 'error');
+    } finally {
+      setAnalyzingProduct(false);
+    }
+  }, [productModal, showToast, closeProductModal, addNotification, researchQuery, fetchSavedProducts, fetchDashboardStats]);
 
   const toggleProductSelected = (id) => {
     setSelectedProductIds(prev => {
@@ -1342,187 +1053,249 @@ function Dashboard({ user, onLogout }) {
     });
   };
 
-  const deleteSavedProduct = useCallback(async (id) => {
+  const openManagedProduct = useCallback(async (id) => {
+    setSelectedProductLoading(true);
+    setManagementTab('details');
+    setTabRecommendation(null);
+    try {
+      const res = await fetch(`${RESEARCH_API_URL}/manager/product/${id}`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      setSelectedManagedProduct(data);
+      setDetailsForm({
+        name: data.name || '', description: data.description || '', category: data.category || '',
+        status: data.status || 'active', reorderLevel: String(data.reorder_level ?? ''),
+      });
+      setPricingEditPrice(data.selling_price != null ? String(data.selling_price) : '');
+      setPricingStrategySelection(data.pricing?.strategy && data.pricing.strategy !== 'manual' ? data.pricing.strategy : 'mid');
+      setInventoryDelta('');
+      setInventoryReason('restock');
+    } catch {
+      setSelectedManagedProduct(null);
+      showToast('Could not load product details', 'error');
+    } finally {
+      setSelectedProductLoading(false);
+    }
+  }, [showToast]);
+
+  const saveDetails = useCallback(async () => {
+    if (!selectedManagedProduct) return;
+    setSavingDetails(true);
+    try {
+      const res = await fetch(`${RESEARCH_API_URL}/manager/product/${selectedManagedProduct.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: detailsForm.name,
+          description: detailsForm.description,
+          category: detailsForm.category,
+          status: detailsForm.status,
+          reorder_level: detailsForm.reorderLevel !== '' ? Number(detailsForm.reorderLevel) : undefined,
+        }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.detail || `HTTP ${res.status}`);
+      }
+      const data = await res.json();
+      setSelectedManagedProduct(data);
+      showToast('Product details saved', 'success');
+      fetchSavedProducts();
+    } catch (err) {
+      showToast(err.message || 'Could not save details', 'error');
+    } finally {
+      setSavingDetails(false);
+    }
+  }, [selectedManagedProduct, detailsForm, showToast, fetchSavedProducts]);
+
+  const deleteManagedProduct = useCallback(async (id) => {
     if (!window.confirm('Delete this product? This cannot be undone.')) return;
     setDeletingProductId(id);
     try {
-      const res = await fetch(`${RESEARCH_API_URL}/product/${id}`, { method: 'DELETE' });
+      const res = await fetch(`${RESEARCH_API_URL}/manager/product/${id}`, { method: 'DELETE' });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       showToast('Product deleted', 'success');
       setSelectedProductIds(prev => { const next = { ...prev }; delete next[id]; return next; });
-      fetchMyProducts();
+      setSelectedManagedProduct(prev => (prev?.id === id ? null : prev));
+      fetchSavedProducts();
+      fetchDashboardStats();
     } catch {
       showToast('Failed to delete product', 'error');
     } finally {
       setDeletingProductId(null);
     }
-  }, [showToast, fetchMyProducts]);
+  }, [showToast, fetchSavedProducts, fetchDashboardStats]);
 
-  const bulkDeleteSelected = useCallback(async () => {
-    const ids = Object.keys(selectedProductIds);
+  const runBulkOperation = useCallback(async (operation, extra = {}) => {
+    const ids = Object.keys(selectedProductIds).map(Number);
     if (ids.length === 0) return;
-    if (!window.confirm(`Delete ${ids.length} selected product(s)? This cannot be undone.`)) return;
-    setBulkDeleting(true);
+    setBulkActionRunning(true);
     try {
-      const results = await Promise.allSettled(
-        ids.map(id => fetch(`${RESEARCH_API_URL}/product/${id}`, { method: 'DELETE' }))
-      );
-      const failedCount = results.filter(r => r.status === 'rejected' || !r.value?.ok).length;
-      if (failedCount > 0) {
-        showToast(`Deleted ${ids.length - failedCount} of ${ids.length} — ${failedCount} failed`, 'warning');
-      } else {
-        showToast(`Deleted ${ids.length} product(s)`, 'success');
-      }
-      setSelectedProductIds({});
-      fetchMyProducts();
-    } finally {
-      setBulkDeleting(false);
-    }
-  }, [selectedProductIds, showToast, fetchMyProducts]);
-
-  const selectPricingProduct = (product) => {
-    setPricingSelectedProduct(product);
-    setPricingCostPrice(product.price != null ? String(product.price) : '');
-    setPricingPlatform(product.platform || 'aliexpress');
-    setPricingResult(null);
-    setPricingError(null);
-  };
-
-  const clearPricingProduct = () => {
-    setPricingSelectedProduct(null);
-    setPricingCostPrice('');
-    setPricingResult(null);
-    setPricingError(null);
-  };
-
-  const goToPricingFor = (product) => {
-    selectPricingProduct(product);
-    setPage('pricing');
-  };
-
-  const analyzePricing = async () => {
-    const costPriceNum = Number(pricingCostPrice);
-    if (!pricingCostPrice || Number.isNaN(costPriceNum) || costPriceNum <= 0) {
-      showToast('Enter a valid cost price', 'warning');
-      return;
-    }
-    setPricingLoading(true);
-    setPricingError(null);
-    setPricingResult(null);
-    const marginOption = MARGIN_OPTIONS.find(m => m.value === pricingMargin) || MARGIN_OPTIONS[1];
-
-    // /api/pricing/analyze only supports a saved product's own stored price as the cost
-    // basis; if the cost-price field still matches that stored price, use it directly —
-    // otherwise (edited cost, or an ad-hoc unsaved product) use /suggest-price, which
-    // accepts an explicit cost_price override.
-    const usingStoredCost = pricingSelectedProduct && costPriceNum === Number(pricingSelectedProduct.price);
-    const endpoint = usingStoredCost ? 'analyze' : 'suggest-price';
-    const body = usingStoredCost
-      ? { product_id: pricingSelectedProduct.id, strategy: marginOption.strategy, platform: pricingPlatform }
-      : {
-          product_id: pricingSelectedProduct?.id ?? null,
-          product_name: pricingSelectedProduct?.name || pricingSearch.trim() || 'Unnamed product',
-          cost_price: costPriceNum,
-          platform: pricingPlatform,
-          strategy: marginOption.strategy,
-        };
-
-    try {
-      const res = await fetch(`${RESEARCH_API_URL}/pricing/${endpoint}`, {
+      const res = await fetch(`${RESEARCH_API_URL}/manager/bulk-operations`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
+        body: JSON.stringify({ operation, product_ids: ids, ...extra }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      showToast(
+        `${data.updated_count} succeeded${data.failed_count ? `, ${data.failed_count} failed` : ''}`,
+        data.failed_count ? 'warning' : 'success'
+      );
+      setSelectedProductIds({});
+      fetchSavedProducts();
+      fetchDashboardStats();
+    } catch {
+      showToast('Bulk operation failed', 'error');
+    } finally {
+      setBulkActionRunning(false);
+    }
+  }, [selectedProductIds, showToast, fetchSavedProducts, fetchDashboardStats]);
+
+  const bulkDeleteSelected = useCallback(() => {
+    const count = Object.keys(selectedProductIds).length;
+    if (count === 0) return;
+    if (!window.confirm(`Delete ${count} selected product(s)? This cannot be undone.`)) return;
+    runBulkOperation('delete');
+  }, [selectedProductIds, runBulkOperation]);
+
+  const bulkSetStatus = useCallback(() => {
+    runBulkOperation('update_status', { status: bulkStatusValue });
+  }, [runBulkOperation, bulkStatusValue]);
+
+  const bulkApplyPricing = useCallback(() => {
+    runBulkOperation('apply_pricing', { strategy: bulkPricingStrategy });
+  }, [runBulkOperation, bulkPricingStrategy]);
+
+  const bulkRefreshPrice = useCallback(() => {
+    runBulkOperation('refresh_price');
+  }, [runBulkOperation]);
+
+  const submitBulkStockUpdate = useCallback(async () => {
+    const delta = Number(bulkStockDelta);
+    if (bulkStockDelta === '' || Number.isNaN(delta) || delta === 0) {
+      showToast('Enter a non-zero quantity change', 'warning');
+      return;
+    }
+    setBulkStockSaving(true);
+    await runBulkOperation('update_stock', { quantity_change: delta, reason: bulkStockReason });
+    setBulkStockSaving(false);
+    setBulkStockModalOpen(false);
+  }, [bulkStockDelta, bulkStockReason, runBulkOperation, showToast]);
+
+  const applyManualPrice = useCallback(async () => {
+    if (!selectedManagedProduct || pricingEditPrice === '') return;
+    const priceNum = Number(pricingEditPrice);
+    if (Number.isNaN(priceNum) || priceNum < 0) {
+      showToast('Enter a valid price', 'warning');
+      return;
+    }
+    setSavingPricing(true);
+    try {
+      const res = await fetch(`${RESEARCH_API_URL}/manager/product/${selectedManagedProduct.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ selling_price: priceNum }),
       });
       if (!res.ok) {
-        const errBody = await res.json().catch(() => ({}));
-        throw new Error(errBody.detail || `HTTP ${res.status}`);
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.detail || `HTTP ${res.status}`);
       }
       const data = await res.json();
-      setPricingResult(data);
+      setSelectedManagedProduct(data);
+      showToast(`Price set to ${data.currency} ${priceNum.toFixed(2)}`, 'success');
+      fetchSavedProducts();
     } catch (err) {
-      setPricingError(err.message || 'Could not analyze pricing');
-      showToast('Could not analyze pricing — check that the Pricing Agent is reachable', 'error');
+      showToast(err.message || 'Could not set price', 'error');
     } finally {
-      setPricingLoading(false);
+      setSavingPricing(false);
     }
-  };
+  }, [selectedManagedProduct, pricingEditPrice, showToast, fetchSavedProducts]);
 
-  const applyPricingSuggestion = async () => {
-    if (!pricingSelectedProduct || !pricingResult) return;
-    setPricingApplying(true);
+  const applyPricingStrategyToSelected = useCallback(async () => {
+    if (!selectedManagedProduct) return;
+    setSavingPricing(true);
     try {
-      const res = await fetch(`${RESEARCH_API_URL}/pricing/bulk-apply`, {
+      const res = await fetch(`${RESEARCH_API_URL}/manager/bulk-operations`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          items: [{ product_id: pricingSelectedProduct.id, applied_price: pricingResult.suggested_price }],
+          operation: 'apply_pricing',
+          product_ids: [selectedManagedProduct.id],
+          strategy: pricingStrategySelection,
         }),
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
-      const itemResult = data.results?.[0];
-      if (!itemResult?.success) throw new Error(itemResult?.message || 'Failed to apply price');
-
-      showToast(`Price applied — $${pricingResult.suggested_price.toFixed(2)}`, 'success');
-      addNotification('success', `Applied new price ${pricingSelectedProduct.currency || 'USD'} ${pricingResult.suggested_price.toFixed(2)} to "${pricingSelectedProduct.name}"`);
-      setPricingSelectedProduct(prev => (prev ? { ...prev, price: pricingResult.suggested_price } : prev));
-      fetchMyProducts();
+      const item = data.results?.[0];
+      if (!item?.success) throw new Error(item?.message || 'Failed to apply pricing strategy');
+      showToast(item.message, 'success');
+      openManagedProduct(selectedManagedProduct.id);
+      fetchSavedProducts();
     } catch (err) {
-      showToast(err.message || 'Could not apply price', 'error');
+      showToast(err.message || 'Could not apply pricing strategy', 'error');
     } finally {
-      setPricingApplying(false);
+      setSavingPricing(false);
     }
-  };
+  }, [selectedManagedProduct, pricingStrategySelection, showToast, fetchSavedProducts, openManagedProduct]);
 
-  const saveForLater = () => {
-    showToast('Suggestion saved to Pricing History for later use', 'success');
-  };
-
-  const openPricingHistoryModal = async (product) => {
-    setPricingHistoryModal({ product, data: null, error: null });
-    setPricingHistoryLoading(true);
-    try {
-      const res = await fetch(`${RESEARCH_API_URL}/pricing/history/${product.id}`);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json();
-      setPricingHistoryModal({ product, data, error: null });
-    } catch {
-      setPricingHistoryModal({ product, data: null, error: 'Could not load pricing history' });
-      showToast('Could not load pricing history', 'error');
-    } finally {
-      setPricingHistoryLoading(false);
-    }
-  };
-
-  const exportPricingHistory = () => {
-    const entries = pricingHistoryModal?.data?.entries || [];
-    if (entries.length === 0) {
-      showToast('No pricing history to export', 'warning');
+  const adjustInventory = useCallback(async () => {
+    if (!selectedManagedProduct || inventoryDelta === '') return;
+    const delta = Number(inventoryDelta);
+    if (Number.isNaN(delta) || delta === 0) {
+      showToast('Enter a non-zero quantity change', 'warning');
       return;
     }
-    const rows = [
-      ['Date', 'Cost Price', 'Suggested Price', 'Applied Price', 'Margin %', 'Strategy'],
-      ...entries.map(e => [
-        new Date(e.created_at).toLocaleString(),
-        e.cost_price ?? '',
-        e.suggested_price ?? '',
-        e.applied_price ?? '',
-        e.profit_margin ?? '',
-        e.strategy ?? '',
-      ]),
-    ];
-    const csv = rows.map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(',')).join('\n');
-    downloadBlob('﻿' + csv, 'text/csv', `pricing-history-${pricingHistoryModal.product.id}.csv`);
-  };
+    setSavingInventoryChange(true);
+    try {
+      const res = await fetch(`${RESEARCH_API_URL}/manager/product/${selectedManagedProduct.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ quantity_change: delta, stock_reason: inventoryReason }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.detail || `HTTP ${res.status}`);
+      }
+      const data = await res.json();
+      setSelectedManagedProduct(data);
+      setInventoryDelta('');
+      showToast(`Stock updated — ${data.quantity} on hand`, 'success');
+      if (data.stock_status === 'low-stock' || data.stock_status === 'out-of-stock') {
+        addNotification('warning', `"${data.name}" is now ${data.stock_status.replace('-', ' ')}`);
+      }
+      fetchSavedProducts();
+      fetchDashboardStats();
+    } catch (err) {
+      showToast(err.message || 'Could not update stock', 'error');
+    } finally {
+      setSavingInventoryChange(false);
+    }
+  }, [selectedManagedProduct, inventoryDelta, inventoryReason, showToast, addNotification, fetchSavedProducts, fetchDashboardStats]);
+
+  const fetchTabRecommendation = useCallback(async (focus) => {
+    if (!selectedManagedProduct) return;
+    setTabRecommendationLoading(true);
+    setTabRecommendation(null);
+    try {
+      const res = await fetch(`${RESEARCH_API_URL}/manager/ai-recommendation?product_id=${selectedManagedProduct.id}&focus=${focus}`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      setTabRecommendation(await res.json());
+    } catch {
+      showToast('Could not get an AI recommendation', 'error');
+    } finally {
+      setTabRecommendationLoading(false);
+    }
+  }, [selectedManagedProduct, showToast]);
 
   const generateReport = useCallback(async () => {
     setReportLoading(true);
     try {
-      const res = await fetch(`${RESEARCH_API_URL}/products?limit=200`);
+      const res = await fetch(`${RESEARCH_API_URL}/manager/products?limit=200`);
       const data = res.ok ? await res.json() : { products: [], total: 0 };
       const products = data.products || [];
-      const withPrice = products.filter(p => p.price != null);
-      const avgPrice = withPrice.length > 0 ? withPrice.reduce((sum, p) => sum + p.price, 0) / withPrice.length : 0;
+      const withPrice = products.filter(p => p.selling_price != null);
+      const avgPrice = withPrice.length > 0 ? withPrice.reduce((sum, p) => sum + p.selling_price, 0) / withPrice.length : 0;
       const platformCounts = {};
       products.forEach(p => { platformCounts[p.platform] = (platformCounts[p.platform] || 0) + 1; });
 
@@ -1551,14 +1324,14 @@ function Dashboard({ user, onLogout }) {
   };
 
   const runProductExport = () => {
-    let rows = filteredMyProducts;
+    let rows = savedProducts;
     if (exportForm.dateFrom) {
       const from = new Date(exportForm.dateFrom).getTime();
-      rows = rows.filter(p => p.created_at && new Date(p.created_at).getTime() >= from);
+      rows = rows.filter(p => p.updated_at && new Date(p.updated_at).getTime() >= from);
     }
     if (exportForm.dateTo) {
       const to = new Date(exportForm.dateTo).getTime() + 86400000;
-      rows = rows.filter(p => p.created_at && new Date(p.created_at).getTime() <= to);
+      rows = rows.filter(p => p.updated_at && new Date(p.updated_at).getTime() <= to);
     }
     if (rows.length === 0) {
       showToast('No products match the selected export options', 'warning');
@@ -1573,11 +1346,11 @@ function Dashboard({ user, onLogout }) {
 
     if (exportForm.format === 'json') {
       const data = rows.map(p => Object.fromEntries(cols.map(c => [c.key, p[c.key] ?? null])));
-      downloadBlob(JSON.stringify(data, null, 2), 'application/json', 'my-products.json');
+      downloadBlob(JSON.stringify(data, null, 2), 'application/json', 'products.json');
     } else {
-      const csvRows = [cols.map(c => c.label), ...rows.map(p => cols.map(c => (c.key === 'in_stock' ? (p.in_stock ? 'Yes' : 'No') : p[c.key] ?? '')))];
+      const csvRows = [cols.map(c => c.label), ...rows.map(p => cols.map(c => p[c.key] ?? ''))];
       const csv = csvRows.map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(',')).join('\n');
-      downloadBlob('﻿' + csv, 'text/csv', 'my-products.csv');
+      downloadBlob('﻿' + csv, 'text/csv', 'products.csv');
     }
 
     showToast(`Exported ${rows.length} product(s)`, 'success');
@@ -1650,8 +1423,7 @@ const deselectAllAgents = useCallback(() => {
     { id: 'logs', icon: '≣', label: t.logs },
     { id: 'analytics', icon: '📊', label: 'Analytics' },
     { id: 'research', icon: '📦', label: t.productsResearch },
-    { id: 'myproducts', icon: '🛍️', label: 'My Products' },
-    { id: 'pricing', icon: '💰', label: 'Pricing' },
+    { id: 'products', icon: '🛍️', label: 'Product Management' },
     { id: 'platforms', icon: '⚙️', label: t.platformSettings },
     { id: 'usersettings', icon: '⚙️', label: 'Settings' },
   ];
@@ -1662,12 +1434,15 @@ const deselectAllAgents = useCallback(() => {
     if (notifCenterOpen) { setNotifCenterOpen(false); return; }
     if (exportModalOpen) { setExportModalOpen(false); return; }
     if (reportModal) { setReportModal(null); return; }
-    if (priceHistoryModal) { setPriceHistoryModal(null); return; }
-    if (pricingHistoryModal) { setPricingHistoryModal(null); return; }
+    if (bulkStockModalOpen) { setBulkStockModalOpen(false); return; }
     if (productModal) { closeProductModal(); return; }
     if (editingPlatform) { setEditingPlatform(null); return; }
     if (settingsAgent) { setSettingsAgent(null); return; }
-  }, [logoutConfirmOpen, shortcutsModalOpen, notifCenterOpen, exportModalOpen, reportModal, priceHistoryModal, pricingHistoryModal, productModal, editingPlatform, settingsAgent, closeProductModal]);
+    if (selectedManagedProduct) { setSelectedManagedProduct(null); return; }
+  }, [
+    logoutConfirmOpen, shortcutsModalOpen, notifCenterOpen, exportModalOpen, reportModal,
+    bulkStockModalOpen, productModal, editingPlatform, settingsAgent, selectedManagedProduct, closeProductModal,
+  ]);
 
   useEffect(() => {
     const handler = (e) => {
@@ -1691,7 +1466,7 @@ const deselectAllAgents = useCallback(() => {
       }
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'p') {
         e.preventDefault();
-        setPage('myproducts');
+        setPage('products');
         return;
       }
       if (e.key === '?' && !isTyping) {
@@ -2284,379 +2059,543 @@ const deselectAllAgents = useCallback(() => {
           </section>
         )}
 
-        {page === 'myproducts' && (
+        {page === 'products' && (
           <section className="dsh-section">
             <div className="dsh-section-head">
-              <h2>🛍️ My Products</h2>
+              <h2>🛍️ Product Management</h2>
               <div className="dsh-tools">
-                <input
-                  className="dsh-input"
-                  placeholder="Search saved products..."
-                  value={myProductsSearch}
-                  onChange={e => { setMyProductsSearch(e.target.value); setMyProductsPageNum(1); }}
-                />
-                {selectedProductCount > 0 && (
-                  <button className="dsh-btn dsh-btn--ghost" onClick={bulkDeleteSelected} disabled={bulkDeleting}>
-                    {bulkDeleting ? (<><span className="dsh-spinner" /> Deleting...</>) : `🗑 Delete (${selectedProductCount})`}
-                  </button>
-                )}
-                <button
-                  className="dsh-btn dsh-btn--ghost"
-                  onClick={refreshAllPrices}
-                  disabled={refreshingPrices || myProducts.length === 0}
-                >
-                  {refreshingPrices ? (<><span className="dsh-spinner" /> Refreshing...</>) : '💰 Refresh Prices'}
-                </button>
-                <button
-                  className="dsh-btn dsh-btn--ghost"
-                  onClick={() => setExportModalOpen(true)}
-                  disabled={filteredMyProducts.length === 0}
-                >
+                <button className="dsh-btn dsh-btn--ghost" onClick={() => setExportModalOpen(true)} disabled={savedProducts.length === 0}>
                   ⬇ Export
                 </button>
               </div>
             </div>
 
-            {myProductsLoading ? (
-              <div className="dsh-list">{[0, 1, 2, 3].map(i => <SkeletonTaskRow key={i} />)}</div>
-            ) : filteredMyProducts.length === 0 ? (
-              myProductsSearch.trim() ? (
-                <EmptyState
-                  icon="🔍"
-                  title={t.noResultsTitle}
-                  subtitle="No saved products match your search"
-                  action={<button className="dsh-btn dsh-btn--ghost" onClick={() => setMyProductsSearch('')}>{t.clearSearch}</button>}
-                />
-              ) : (
-                <EmptyState
-                  icon="🛍️"
-                  title="No Saved Products"
-                  subtitle="Products you add from Products Research will show up here"
-                  action={<button className="dsh-btn dsh-btn--primary" onClick={() => setPage('research')}>📦 {t.productsResearch}</button>}
-                />
-              )
-            ) : (
-              <>
-                <div className="dsh-products-table-wrap">
-                  <table className="dsh-products-table">
-                    <thead>
-                      <tr>
-                        <th className="dsh-products-th-check">
-                          <input type="checkbox" checked={allOnPageSelected} onChange={toggleSelectAllOnPage} />
-                        </th>
-                        <th></th>
-                        <th>Name</th>
-                        <th>Price</th>
-                        <th>Platform</th>
-                        <th>Date Added</th>
-                        <th>Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {paginatedMyProducts.map(p => (
-                        <tr key={p.id} className={selectedProductIds[p.id] ? 'dsh-products-row--selected' : ''}>
-                          <td>
-                            <input
-                              type="checkbox"
-                              checked={!!selectedProductIds[p.id]}
-                              onChange={() => toggleProductSelected(p.id)}
-                            />
-                          </td>
-                          <td>
-                            <div className="dsh-products-thumb">
+            {dashboardStats && (
+              <div className="dsh-inventory-summary">
+                <div className="dsh-inventory-summary-stat">
+                  <span className="dsh-inventory-summary-label">Total Products</span>
+                  <span className="dsh-inventory-summary-value">{dashboardStats.total_products}</span>
+                </div>
+                <div className="dsh-inventory-summary-stat">
+                  <span className="dsh-inventory-summary-label">Inventory Value</span>
+                  <span className="dsh-inventory-summary-value dsh-inventory-summary-value--gold">
+                    ${Number(dashboardStats.total_inventory_value).toFixed(2)}
+                  </span>
+                </div>
+                <div className="dsh-inventory-summary-stat">
+                  <span className="dsh-inventory-summary-label">Avg Margin</span>
+                  <span className="dsh-inventory-summary-value">
+                    {dashboardStats.average_margin_percent != null ? `${dashboardStats.average_margin_percent.toFixed(1)}%` : '—'}
+                  </span>
+                </div>
+                <div className="dsh-inventory-summary-stat dsh-inventory-summary-stat--warning">
+                  <span className="dsh-inventory-summary-label">Low Stock</span>
+                  <span className="dsh-inventory-summary-value">{dashboardStats.low_stock_count}</span>
+                </div>
+                <div className="dsh-inventory-summary-stat dsh-inventory-summary-stat--danger">
+                  <span className="dsh-inventory-summary-label">Out of Stock</span>
+                  <span className="dsh-inventory-summary-value">{dashboardStats.out_of_stock_count}</span>
+                </div>
+                <div className="dsh-inventory-summary-stat">
+                  <span className="dsh-inventory-summary-label">Overstocked</span>
+                  <span className="dsh-inventory-summary-value">{dashboardStats.overstocked_count}</span>
+                </div>
+              </div>
+            )}
+
+            <div className="dsh-pm-layout">
+              <div className="dsh-pm-left">
+                <div className="dsh-pill-toggle-group">
+                  <button type="button" className={`dsh-pill-toggle ${leftPanelMode === 'saved' ? 'dsh-pill-toggle--active' : ''}`} onClick={() => setLeftPanelMode('saved')}>
+                    My Products
+                  </button>
+                  <button type="button" className={`dsh-pill-toggle ${leftPanelMode === 'search' ? 'dsh-pill-toggle--active' : ''}`} onClick={() => setLeftPanelMode('search')}>
+                    + Find New
+                  </button>
+                </div>
+
+                {leftPanelMode === 'search' ? (
+                  <div className="dsh-pm-search">
+                    <div className="dsh-research-controls">
+                      <input
+                        className="dsh-input"
+                        placeholder={t.researchPlaceholder}
+                        value={researchQuery}
+                        onChange={e => setResearchQuery(e.target.value)}
+                        onKeyDown={e => e.key === 'Enter' && searchResearchProducts()}
+                      />
+                      <button className="dsh-btn dsh-btn--primary" onClick={searchResearchProducts} disabled={researchLoading || !researchQuery.trim()}>
+                        {researchLoading ? (<><span className="dsh-spinner" /> Searching...</>) : `🔍 ${t.searchBtn}`}
+                      </button>
+                    </div>
+                    {researchLoading ? (
+                      <div className="dsh-grid">{[0, 1, 2].map(i => <SkeletonProductCard key={i} />)}</div>
+                    ) : researchResults.length === 0 ? (
+                      <EmptyState icon="📦" title={t.searchPromptTitle} subtitle={t.searchPromptSub} />
+                    ) : (
+                      <div className="dsh-grid">
+                        {researchResults.map((p, i) => (
+                          <div key={p.url || `${p.platform}-${i}`} className="dsh-product-card" onClick={() => openProductModal(p, 'research')}>
+                            <div className="dsh-product-image">
                               {p.image_url ? (
                                 <img src={p.image_url} alt={p.name} onError={e => { e.target.style.display = 'none'; }} />
                               ) : (
                                 <span>📦</span>
                               )}
                             </div>
-                          </td>
-                          <td className="dsh-products-name-cell" title={p.name}>{p.name}</td>
-                          <td>{p.price != null ? `${p.currency || 'USD'} ${Number(p.price).toFixed(2)}` : '—'}</td>
-                          <td><span className="dsh-badge dsh-badge--off">{p.platform}</span></td>
-                          <td>{p.created_at ? new Date(p.created_at).toLocaleDateString() : '—'}</td>
-                          <td>
-                            <div className="dsh-products-actions">
-                              <button
-                                className="dsh-agent-btn dsh-agent-btn--settings dsh-agent-btn--icon"
-                                title="View details"
-                                onClick={() => openProductModal(p, 'saved')}
-                              >
-                                👁
-                              </button>
-                              <button
-                                className="dsh-agent-btn dsh-agent-btn--settings dsh-agent-btn--icon"
-                                title="Price History"
-                                onClick={() => openPriceHistory(p)}
-                              >
-                                📈
-                              </button>
-                              <button
-                                className="dsh-agent-btn dsh-agent-btn--settings dsh-agent-btn--icon"
-                                title="Price This"
-                                onClick={() => goToPricingFor(p)}
-                              >
-                                💰
-                              </button>
-                              <button
-                                className="dsh-agent-btn dsh-agent-btn--pause dsh-agent-btn--icon"
-                                title="Delete"
-                                onClick={() => deleteSavedProduct(p.id)}
-                                disabled={deletingProductId === p.id}
-                              >
-                                {deletingProductId === p.id ? <span className="dsh-spinner" /> : '🗑'}
-                              </button>
+                            <h3 className="dsh-product-name" title={p.name}>{p.name}</h3>
+                            <div className="dsh-product-meta">
+                              <span className="dsh-product-price">{p.price != null ? `${p.currency || 'USD'} ${Number(p.price).toFixed(2)}` : '—'}</span>
+                              <span className="dsh-badge dsh-badge--off">{p.platform}</span>
                             </div>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-
-                {myProductsTotalPages > 1 && (
-                  <div className="dsh-pagination">
-                    <button
-                      className="dsh-btn dsh-btn--ghost"
-                      disabled={myProductsPageClamped <= 1}
-                      onClick={() => setMyProductsPageNum(p => Math.max(1, p - 1))}
-                    >
-                      ‹ Prev
-                    </button>
-                    <span className="dsh-pagination-info">
-                      Page {myProductsPageClamped} of {myProductsTotalPages} · {myProductsTotal} total
-                    </span>
-                    <button
-                      className="dsh-btn dsh-btn--ghost"
-                      disabled={myProductsPageClamped >= myProductsTotalPages}
-                      onClick={() => setMyProductsPageNum(p => Math.min(myProductsTotalPages, p + 1))}
-                    >
-                      Next ›
-                    </button>
-                  </div>
-                )}
-              </>
-            )}
-          </section>
-        )}
-
-        {page === 'pricing' && (
-          <section className="dsh-section">
-            <div className="dsh-section-head">
-              <h2>💰 Pricing</h2>
-              <button className="dsh-btn dsh-btn--ghost" onClick={() => setPage('myproducts')}>← Back to Products</button>
-            </div>
-
-            {!pricingSelectedProduct ? (
-              <div className="dsh-pricing-selector">
-                <input
-                  className="dsh-input dsh-pricing-search-input"
-                  placeholder="Enter product URL or name"
-                  value={pricingSearch}
-                  onChange={e => setPricingSearch(e.target.value)}
-                />
-                {pricingSearchResults.length === 0 ? (
-                  <EmptyState
-                    icon="🔍"
-                    title="No Matching Products"
-                    subtitle="No saved products match that search — you can still price it as a new item below"
-                  />
-                ) : (
-                  <div className="dsh-pricing-product-list">
-                    {pricingSearchResults.slice(0, 8).map(p => (
-                      <div key={p.id} className="dsh-pricing-product-item" onClick={() => selectPricingProduct(p)}>
-                        <div className="dsh-pricing-product-thumb">
-                          {p.image_url ? (
-                            <img src={p.image_url} alt={p.name} onError={e => { e.target.style.display = 'none'; }} />
-                          ) : (
-                            <span>📦</span>
-                          )}
-                        </div>
-                        <div className="dsh-pricing-product-info">
-                          <div className="dsh-pricing-product-name" title={p.name}>{p.name}</div>
-                          <div className="dsh-pricing-product-meta">
-                            <span className="dsh-badge dsh-badge--off">{p.platform}</span>
-                            <span>{p.price != null ? `${p.currency || 'USD'} ${Number(p.price).toFixed(2)}` : 'No price'}</span>
+                            <button
+                              className="dsh-btn dsh-btn--primary dsh-product-add-btn"
+                              onClick={(e) => { e.stopPropagation(); openProductModal(p, 'research'); }}
+                              disabled={p._added}
+                            >
+                              {p._added ? '✓ Added' : '✨ Analyze & Save'}
+                            </button>
                           </div>
-                        </div>
-                        <span className="dsh-pricing-product-arrow">›</span>
+                        ))}
                       </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            ) : (
-              <div className="dsh-pricing-selected-card">
-                <div className="dsh-pricing-selected-thumb">
-                  {pricingSelectedProduct.image_url ? (
-                    <img
-                      src={pricingSelectedProduct.image_url}
-                      alt={pricingSelectedProduct.name}
-                      onError={e => { e.target.style.display = 'none'; }}
-                    />
-                  ) : (
-                    <span>📦</span>
-                  )}
-                </div>
-                <div className="dsh-pricing-selected-info">
-                  <div className="dsh-pricing-selected-name">{pricingSelectedProduct.name}</div>
-                  <div className="dsh-pricing-selected-meta">
-                    <span className="dsh-badge dsh-badge--off">{pricingSelectedProduct.platform}</span>
-                    <span>
-                      Current price: {pricingSelectedProduct.price != null
-                        ? `${pricingSelectedProduct.currency || 'USD'} ${Number(pricingSelectedProduct.price).toFixed(2)}`
-                        : '—'}
-                    </span>
-                  </div>
-                </div>
-                <div className="dsh-pricing-selected-actions">
-                  <button className="dsh-btn dsh-btn--ghost" onClick={() => openPricingHistoryModal(pricingSelectedProduct)}>
-                    📈 View Pricing History
-                  </button>
-                  <button className="dsh-btn dsh-btn--ghost" onClick={clearPricingProduct}>Change Product</button>
-                </div>
-              </div>
-            )}
-
-            <div className="dsh-pricing-inputs">
-              <div className="dsh-pricing-field">
-                <label>Cost Price</label>
-                <input
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  className="dsh-input"
-                  placeholder="0.00"
-                  value={pricingCostPrice}
-                  onChange={e => setPricingCostPrice(e.target.value)}
-                />
-              </div>
-
-              <div className="dsh-pricing-field">
-                <label>Platform</label>
-                <div className="dsh-pill-toggle-group">
-                  {RESEARCH_PLATFORMS.map(p => (
-                    <button
-                      key={p.id}
-                      type="button"
-                      className={`dsh-pill-toggle ${pricingPlatform === p.id ? 'dsh-pill-toggle--active' : ''}`}
-                      onClick={() => setPricingPlatform(p.id)}
-                    >
-                      {p.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div className="dsh-pricing-field">
-                <label>Profit Margin %</label>
-                <div className="dsh-pill-toggle-group">
-                  {MARGIN_OPTIONS.map(opt => (
-                    <button
-                      key={opt.value}
-                      type="button"
-                      className={`dsh-pill-toggle dsh-margin-toggle-btn ${pricingMargin === opt.value ? 'dsh-pill-toggle--active' : ''}`}
-                      onClick={() => setPricingMargin(opt.value)}
-                    >
-                      {opt.label}
-                      <span className="dsh-margin-toggle-sub">{STRATEGY_LABELS[opt.strategy]}</span>
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <button
-                className="dsh-btn dsh-btn--primary dsh-pricing-analyze-btn"
-                onClick={analyzePricing}
-                disabled={pricingLoading || !pricingCostPrice}
-              >
-                {pricingLoading ? (<><span className="dsh-spinner" /> Analyzing...</>) : '✨ Analyze & Get Suggestion'}
-              </button>
-            </div>
-
-            {pricingError && !pricingLoading && (
-              <div className="dsh-ai-error">⚠️ {pricingError}</div>
-            )}
-
-            {pricingResult && !pricingLoading && (
-              <div className="dsh-pricing-results">
-                <div className="dsh-pricing-compare">
-                  <div className="dsh-pricing-compare-item">
-                    <span className="dsh-pricing-compare-label">
-                      {pricingSelectedProduct ? 'Current Price' : 'Cost Price'}
-                    </span>
-                    <span className="dsh-pricing-compare-value">
-                      ${Number(pricingSelectedProduct?.price ?? pricingResult.cost_price).toFixed(2)}
-                    </span>
-                  </div>
-                  <div className="dsh-pricing-compare-arrow">→</div>
-                  <div className="dsh-pricing-compare-item dsh-pricing-compare-item--suggested">
-                    <span className="dsh-pricing-compare-label">Suggested Price</span>
-                    <span className="dsh-pricing-compare-value dsh-pricing-compare-value--gold">
-                      ${Number(pricingResult.suggested_price).toFixed(2)}
-                    </span>
-                  </div>
-                </div>
-
-                <div className="dsh-pricing-margin-display">
-                  <span className="dsh-pricing-margin-label">Profit Margin</span>
-                  <span className="dsh-pricing-margin-value">{Number(pricingResult.profit_margin_percent).toFixed(1)}%</span>
-                </div>
-
-                <div className="dsh-pricing-stats-grid">
-                  <div className="dsh-pricing-stat">
-                    <span className="dsh-pricing-stat-label">Recommended Range</span>
-                    <span className="dsh-pricing-stat-value">
-                      ${Number(pricingResult.price_range.min).toFixed(2)} – ${Number(pricingResult.price_range.max).toFixed(2)}
-                    </span>
-                  </div>
-                  <div className="dsh-pricing-stat">
-                    <span className="dsh-pricing-stat-label">Competitor Avg</span>
-                    <span className="dsh-pricing-stat-value">
-                      {pricingResult.competitor_prices.avg != null ? `$${Number(pricingResult.competitor_prices.avg).toFixed(2)}` : 'No data'}
-                    </span>
-                    {pricingResult.competitor_prices.avg != null && (
-                      <span className="dsh-pricing-stat-sub">
-                        ${Number(pricingResult.competitor_prices.min).toFixed(2)} – ${Number(pricingResult.competitor_prices.max).toFixed(2)}
-                        {' · '}{pricingResult.competitor_prices.sample_size} similar
-                      </span>
                     )}
                   </div>
-                  <div className="dsh-pricing-stat">
-                    <span className="dsh-pricing-stat-label">Strategy</span>
-                    <span className={`dsh-strategy-badge dsh-strategy-badge--${pricingResult.strategy}`}>
-                      {STRATEGY_LABELS[pricingResult.strategy] || pricingResult.strategy}
-                    </span>
+                ) : (
+                  <>
+                    <div className="dsh-inventory-controls">
+                      <input
+                        className="dsh-input dsh-inventory-search-input"
+                        placeholder="Search my products"
+                        value={savedSearchText}
+                        onChange={e => setSavedSearchText(e.target.value)}
+                      />
+                      <select className="dsh-settings-select" value={savedStatusFilter} onChange={e => setSavedStatusFilter(e.target.value)}>
+                        <option value="">All Statuses</option>
+                        <option value="active">Active</option>
+                        <option value="draft">Draft</option>
+                        <option value="archived">Archived</option>
+                      </select>
+                      <select className="dsh-settings-select" value={savedStockStatusFilter} onChange={e => setSavedStockStatusFilter(e.target.value)}>
+                        {INVENTORY_STATUS_FILTERS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                      </select>
+                      <select className="dsh-settings-select" value={savedCategoryFilter} onChange={e => setSavedCategoryFilter(e.target.value)}>
+                        <option value="">All Categories</option>
+                        {savedCategories.map(c => <option key={c} value={c}>{c}</option>)}
+                      </select>
+                      <select className="dsh-settings-select" value={savedSortBy} onChange={e => setSavedSortBy(e.target.value)}>
+                        <option value="">Default</option>
+                        <option value="name">Name</option>
+                        <option value="quantity">Quantity</option>
+                        <option value="value">Value</option>
+                        <option value="margin">Margin</option>
+                        <option value="updated_at">Last Updated</option>
+                      </select>
+                      {savedSortBy && (
+                        <button type="button" className="dsh-btn dsh-btn--ghost" onClick={() => setSavedSortDir(d => (d === 'asc' ? 'desc' : 'asc'))}>
+                          {savedSortDir === 'asc' ? '↑ Asc' : '↓ Desc'}
+                        </button>
+                      )}
+                    </div>
+
+                    {selectedProductCount > 0 && (
+                      <div className="dsh-inventory-bulk-bar dsh-pm-bulk-bar">
+                        <span>{selectedProductCount} selected</span>
+                        <button className="dsh-btn dsh-btn--ghost" onClick={bulkDeleteSelected} disabled={bulkActionRunning}>🗑 Delete</button>
+                        <select className="dsh-settings-select" value={bulkStatusValue} onChange={e => setBulkStatusValue(e.target.value)}>
+                          <option value="active">Active</option>
+                          <option value="draft">Draft</option>
+                          <option value="archived">Archived</option>
+                        </select>
+                        <button className="dsh-btn dsh-btn--ghost" onClick={bulkSetStatus} disabled={bulkActionRunning}>Set Status</button>
+                        <button
+                          className="dsh-btn dsh-btn--ghost"
+                          onClick={() => { setBulkStockDelta(''); setBulkStockReason('correction'); setBulkStockModalOpen(true); }}
+                          disabled={bulkActionRunning}
+                        >
+                          ✎ Adjust Stock
+                        </button>
+                        <select className="dsh-settings-select" value={bulkPricingStrategy} onChange={e => setBulkPricingStrategy(e.target.value)}>
+                          {Object.entries(STRATEGY_LABELS).filter(([k]) => k !== 'custom').map(([k, label]) => <option key={k} value={k}>{label}</option>)}
+                        </select>
+                        <button className="dsh-btn dsh-btn--ghost" onClick={bulkApplyPricing} disabled={bulkActionRunning}>💰 Apply Pricing</button>
+                        <button className="dsh-btn dsh-btn--ghost" onClick={bulkRefreshPrice} disabled={bulkActionRunning}>🔄 Refresh Price</button>
+                        <button className="dsh-btn dsh-btn--ghost" onClick={() => setSelectedProductIds({})}>Clear</button>
+                      </div>
+                    )}
+
+                    {savedProductsLoading ? (
+                      <div className="dsh-list">{[0, 1, 2, 3].map(i => <SkeletonTaskRow key={i} />)}</div>
+                    ) : savedProducts.length === 0 ? (
+                      <EmptyState
+                        icon="🛍️"
+                        title="No Saved Products"
+                        subtitle='Use "+ Find New" to search and analyze a product into your catalog'
+                        action={<button className="dsh-btn dsh-btn--primary" onClick={() => setLeftPanelMode('search')}>+ Find New</button>}
+                      />
+                    ) : (
+                      <div className="dsh-products-table-wrap">
+                        <table className="dsh-products-table">
+                          <thead>
+                            <tr>
+                              <th className="dsh-products-th-check">
+                                <input type="checkbox" checked={allSavedSelected} onChange={toggleSelectAllSaved} />
+                              </th>
+                              <th></th>
+                              <th>Name</th>
+                              <th>Price</th>
+                              <th>Stock</th>
+                              <th>Platform</th>
+                              <th>Actions</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {savedProducts.map(p => (
+                              <tr
+                                key={p.id}
+                                className={`${selectedProductIds[p.id] ? 'dsh-products-row--selected' : ''} ${selectedManagedProduct?.id === p.id ? 'dsh-pm-row--active' : ''}`}
+                              >
+                                <td onClick={e => e.stopPropagation()}>
+                                  <input type="checkbox" checked={!!selectedProductIds[p.id]} onChange={() => toggleProductSelected(p.id)} />
+                                </td>
+                                <td onClick={() => openManagedProduct(p.id)}>
+                                  <div className="dsh-products-thumb">
+                                    {p.image_url ? (
+                                      <img src={p.image_url} alt={p.name} onError={e => { e.target.style.display = 'none'; }} />
+                                    ) : (
+                                      <span>📦</span>
+                                    )}
+                                  </div>
+                                </td>
+                                <td className="dsh-products-name-cell" title={p.name} onClick={() => openManagedProduct(p.id)}>{p.name}</td>
+                                <td onClick={() => openManagedProduct(p.id)}>{p.selling_price != null ? `$${Number(p.selling_price).toFixed(2)}` : '—'}</td>
+                                <td onClick={() => openManagedProduct(p.id)}>
+                                  <span className={`dsh-inventory-status-badge dsh-inventory-status-badge--${p.stock_status}`}>
+                                    {INVENTORY_STATUS_LABELS[p.stock_status] || p.stock_status}
+                                  </span>
+                                </td>
+                                <td onClick={() => openManagedProduct(p.id)}><span className="dsh-badge dsh-badge--off">{p.platform}</span></td>
+                                <td>
+                                  <div className="dsh-products-actions">
+                                    <button
+                                      className="dsh-agent-btn dsh-agent-btn--settings dsh-agent-btn--icon"
+                                      title="View / Manage"
+                                      onClick={() => openManagedProduct(p.id)}
+                                    >
+                                      👁
+                                    </button>
+                                    <button
+                                      className="dsh-agent-btn dsh-agent-btn--pause dsh-agent-btn--icon"
+                                      title="Delete"
+                                      onClick={() => deleteManagedProduct(p.id)}
+                                      disabled={deletingProductId === p.id}
+                                    >
+                                      {deletingProductId === p.id ? <span className="dsh-spinner" /> : '🗑'}
+                                    </button>
+                                  </div>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+
+              {selectedManagedProduct && (
+                <div className="dsh-pm-right">
+                  <div className="dsh-pm-right-head">
+                    <h3>{selectedManagedProduct.name}</h3>
+                    <button className="dsh-btn dsh-btn--ghost" onClick={() => setSelectedManagedProduct(null)}>✕ Close</button>
                   </div>
-                </div>
 
-                <div className="dsh-pricing-ai-box">
-                  <div className="dsh-pricing-ai-box-header">✨ AI Recommendation</div>
-                  <p>{pricingResult.ai_recommendation}</p>
-                </div>
+                  {selectedManagedProduct.warnings.length > 0 && (
+                    <div className="dsh-pricing-warnings">
+                      {selectedManagedProduct.warnings.map((w, i) => <div key={i} className="dsh-pricing-warning-item">⚠️ {w}</div>)}
+                    </div>
+                  )}
 
-                {pricingResult.warnings.length > 0 && (
-                  <div className="dsh-pricing-warnings">
-                    {pricingResult.warnings.map((w, i) => (
-                      <div key={i} className="dsh-pricing-warning-item">⚠️ {w}</div>
+                  <div className="dsh-pm-tabs">
+                    {['details', 'pricing', 'inventory', 'marketing', 'history'].map(tabId => (
+                      <button
+                        key={tabId}
+                        type="button"
+                        className={`dsh-pm-tab ${managementTab === tabId ? 'dsh-pm-tab--active' : ''}`}
+                        onClick={() => setManagementTab(tabId)}
+                      >
+                        {tabId.charAt(0).toUpperCase() + tabId.slice(1)}
+                      </button>
                     ))}
                   </div>
-                )}
 
-                <div className="dsh-pricing-actions">
-                  <button
-                    className="dsh-btn dsh-btn--primary"
-                    onClick={applyPricingSuggestion}
-                    disabled={!pricingSelectedProduct || pricingApplying}
-                    title={!pricingSelectedProduct ? 'Select a saved product to apply a price' : undefined}
-                  >
-                    {pricingApplying ? (<><span className="dsh-spinner" /> Applying...</>) : '✓ Apply This Price'}
-                  </button>
-                  <button className="dsh-btn dsh-btn--ghost" onClick={saveForLater}>🔖 Save for Later</button>
-                  <button className="dsh-btn dsh-btn--ghost" onClick={() => setPage('myproducts')}>← Back to Products</button>
+                  {selectedProductLoading ? (
+                    <div className="dsh-ai-loading"><span className="dsh-spinner" /> Loading...</div>
+                  ) : (
+                    <div className="dsh-pm-tab-content">
+                      {managementTab === 'details' && (
+                        <>
+                          <div className="dsh-pricing-field">
+                            <label>Name</label>
+                            <input className="dsh-input" value={detailsForm.name} onChange={e => setDetailsForm(f => ({ ...f, name: e.target.value }))} />
+                          </div>
+                          <div className="dsh-pricing-field">
+                            <label>Description</label>
+                            <textarea
+                              className="dsh-input dsh-platform-config-textarea"
+                              value={detailsForm.description}
+                              onChange={e => setDetailsForm(f => ({ ...f, description: e.target.value }))}
+                            />
+                          </div>
+                          <div className="dsh-pricing-field">
+                            <label>Category</label>
+                            <input className="dsh-input" value={detailsForm.category} onChange={e => setDetailsForm(f => ({ ...f, category: e.target.value }))} />
+                          </div>
+                          <div className="dsh-pricing-field">
+                            <label>Status</label>
+                            <select className="dsh-settings-select" value={detailsForm.status} onChange={e => setDetailsForm(f => ({ ...f, status: e.target.value }))}>
+                              <option value="active">Active</option>
+                              <option value="draft">Draft</option>
+                              <option value="archived">Archived</option>
+                            </select>
+                          </div>
+                          <div className="dsh-pricing-field">
+                            <label>Reorder Level</label>
+                            <input
+                              type="number" min="0" className="dsh-input"
+                              value={detailsForm.reorderLevel}
+                              onChange={e => setDetailsForm(f => ({ ...f, reorderLevel: e.target.value }))}
+                            />
+                          </div>
+                          <div className="dsh-settings-actions">
+                            <button className="dsh-btn dsh-btn--primary" onClick={saveDetails} disabled={savingDetails}>
+                              {savingDetails ? (<><span className="dsh-spinner" /> Saving...</>) : '✓ Save Details'}
+                            </button>
+                            <button className="dsh-btn dsh-btn--ghost" onClick={() => deleteManagedProduct(selectedManagedProduct.id)}>🗑 Delete Product</button>
+                          </div>
+                        </>
+                      )}
+
+                      {managementTab === 'pricing' && (
+                        <>
+                          <div className="dsh-pricing-compare">
+                            <div className="dsh-pricing-compare-item">
+                              <span className="dsh-pricing-compare-label">Cost Price</span>
+                              <span className="dsh-pricing-compare-value">
+                                {selectedManagedProduct.supplier_price != null ? `${selectedManagedProduct.currency} ${Number(selectedManagedProduct.supplier_price).toFixed(2)}` : '—'}
+                              </span>
+                            </div>
+                            <div className="dsh-pricing-compare-arrow">→</div>
+                            <div className="dsh-pricing-compare-item dsh-pricing-compare-item--suggested">
+                              <span className="dsh-pricing-compare-label">Selling Price</span>
+                              <span className="dsh-pricing-compare-value dsh-pricing-compare-value--gold">
+                                {selectedManagedProduct.selling_price != null ? `${selectedManagedProduct.currency} ${Number(selectedManagedProduct.selling_price).toFixed(2)}` : '—'}
+                              </span>
+                            </div>
+                          </div>
+                          <div className="dsh-pricing-margin-display">
+                            <span className="dsh-pricing-margin-label">Profit Margin</span>
+                            <span className="dsh-pricing-margin-value">
+                              {selectedManagedProduct.pricing.margin_percent != null ? `${Number(selectedManagedProduct.pricing.margin_percent).toFixed(1)}%` : '—'}
+                            </span>
+                          </div>
+                          {selectedManagedProduct.pricing.ai_recommendation && (
+                            <div className="dsh-pricing-ai-box">
+                              <div className="dsh-pricing-ai-box-header">✨ AI Recommendation</div>
+                              <p>{selectedManagedProduct.pricing.ai_recommendation}</p>
+                            </div>
+                          )}
+
+                          <div className="dsh-pricing-field">
+                            <label>Set Manual Price</label>
+                            <input
+                              type="number" step="0.01" min="0" className="dsh-input"
+                              value={pricingEditPrice}
+                              onChange={e => setPricingEditPrice(e.target.value)}
+                            />
+                          </div>
+                          <button className="dsh-btn dsh-btn--primary" onClick={applyManualPrice} disabled={savingPricing || pricingEditPrice === ''}>
+                            {savingPricing ? (<><span className="dsh-spinner" /> Saving...</>) : '✓ Set Price'}
+                          </button>
+
+                          <div className="dsh-pricing-field" style={{ marginTop: 16 }}>
+                            <label>Or Apply a Strategy</label>
+                            <div className="dsh-pill-toggle-group">
+                              {Object.entries(STRATEGY_LABELS).filter(([k]) => k !== 'custom').map(([k, label]) => (
+                                <button
+                                  key={k}
+                                  type="button"
+                                  className={`dsh-pill-toggle ${pricingStrategySelection === k ? 'dsh-pill-toggle--active' : ''}`}
+                                  onClick={() => setPricingStrategySelection(k)}
+                                >
+                                  {label}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                          <button className="dsh-btn dsh-btn--ghost" onClick={applyPricingStrategyToSelected} disabled={savingPricing}>
+                            {savingPricing ? (<><span className="dsh-spinner" /> Applying...</>) : '💰 Apply Strategy'}
+                          </button>
+
+                          <div className="dsh-settings-actions" style={{ marginTop: 16 }}>
+                            <button className="dsh-btn dsh-btn--ghost" onClick={() => fetchTabRecommendation('pricing')} disabled={tabRecommendationLoading}>
+                              {tabRecommendationLoading ? (<><span className="dsh-spinner" /> Thinking...</>) : '✨ Get AI Recommendation'}
+                            </button>
+                          </div>
+                          {tabRecommendation && (
+                            <div className="dsh-pricing-ai-box">
+                              <div className="dsh-pricing-ai-box-header">✨ {tabRecommendation.recommendation}</div>
+                              {tabRecommendation.suggested_actions.length > 0 && (
+                                <ul>{tabRecommendation.suggested_actions.map((a, i) => <li key={i}>{a}</li>)}</ul>
+                              )}
+                            </div>
+                          )}
+                        </>
+                      )}
+
+                      {managementTab === 'inventory' && (
+                        <>
+                          <div className="dsh-pricing-stats-grid">
+                            <div className="dsh-pricing-stat">
+                              <span className="dsh-pricing-stat-label">On Hand</span>
+                              <span className="dsh-pricing-stat-value">{selectedManagedProduct.quantity}</span>
+                            </div>
+                            <div className="dsh-pricing-stat">
+                              <span className="dsh-pricing-stat-label">Reorder Level</span>
+                              <span className="dsh-pricing-stat-value">{selectedManagedProduct.reorder_level}</span>
+                            </div>
+                            <div className="dsh-pricing-stat">
+                              <span className="dsh-pricing-stat-label">Status</span>
+                              <span className={`dsh-inventory-status-badge dsh-inventory-status-badge--${selectedManagedProduct.stock_status}`}>
+                                {INVENTORY_STATUS_LABELS[selectedManagedProduct.stock_status]}
+                              </span>
+                            </div>
+                            <div className="dsh-pricing-stat">
+                              <span className="dsh-pricing-stat-label">Turnover Rate</span>
+                              <span className="dsh-pricing-stat-value">{selectedManagedProduct.turnover_rate ?? '—'}</span>
+                            </div>
+                            {selectedManagedProduct.forecast && (
+                              <>
+                                <div className="dsh-pricing-stat">
+                                  <span className="dsh-pricing-stat-label">Forecasted Demand</span>
+                                  <span className="dsh-pricing-stat-value">{selectedManagedProduct.forecast.forecasted_demand ?? '—'}</span>
+                                </div>
+                                <div className="dsh-pricing-stat">
+                                  <span className="dsh-pricing-stat-label">Forecast Confidence</span>
+                                  <span className="dsh-pricing-stat-value">
+                                    {selectedManagedProduct.forecast.confidence != null ? `${(selectedManagedProduct.forecast.confidence * 100).toFixed(0)}%` : '—'}
+                                  </span>
+                                </div>
+                              </>
+                            )}
+                          </div>
+
+                          <div className="dsh-quick-delta-row">
+                            {[-10, -1, 1, 10].map(d => (
+                              <button
+                                key={d}
+                                type="button"
+                                className="dsh-pill-toggle"
+                                onClick={() => setInventoryDelta(String((Number(inventoryDelta) || 0) + d))}
+                              >
+                                {d > 0 ? `+${d}` : d}
+                              </button>
+                            ))}
+                          </div>
+                          <div className="dsh-pricing-field">
+                            <label>Quantity Change</label>
+                            <input type="number" className="dsh-input" placeholder="e.g. -5 or 20" value={inventoryDelta} onChange={e => setInventoryDelta(e.target.value)} />
+                          </div>
+                          <div className="dsh-pricing-field">
+                            <label>Reason</label>
+                            <select className="dsh-settings-select" value={inventoryReason} onChange={e => setInventoryReason(e.target.value)}>
+                              {STOCK_UPDATE_REASONS.map(r => <option key={r} value={r}>{r}</option>)}
+                            </select>
+                          </div>
+                          <button className="dsh-btn dsh-btn--primary" onClick={adjustInventory} disabled={savingInventoryChange || inventoryDelta === ''}>
+                            {savingInventoryChange ? (<><span className="dsh-spinner" /> Saving...</>) : '✓ Apply'}
+                          </button>
+
+                          <div className="dsh-settings-actions" style={{ marginTop: 16 }}>
+                            <button className="dsh-btn dsh-btn--ghost" onClick={() => fetchTabRecommendation('inventory')} disabled={tabRecommendationLoading}>
+                              {tabRecommendationLoading ? (<><span className="dsh-spinner" /> Thinking...</>) : '✨ Get AI Recommendation'}
+                            </button>
+                          </div>
+                          {tabRecommendation && (
+                            <div className="dsh-pricing-ai-box">
+                              <div className="dsh-pricing-ai-box-header">✨ {tabRecommendation.recommendation}</div>
+                              {tabRecommendation.suggested_actions.length > 0 && (
+                                <ul>{tabRecommendation.suggested_actions.map((a, i) => <li key={i}>{a}</li>)}</ul>
+                              )}
+                            </div>
+                          )}
+                        </>
+                      )}
+
+                      {managementTab === 'marketing' && (
+                        <>
+                          {selectedManagedProduct.marketing ? (
+                            <>
+                              <p className="dsh-product-detail-desc">{selectedManagedProduct.marketing.description}</p>
+                              {selectedManagedProduct.marketing.target_audience && (
+                                <p><strong>Target audience:</strong> {selectedManagedProduct.marketing.target_audience}</p>
+                              )}
+                              {selectedManagedProduct.marketing.keywords.length > 0 && (
+                                <div className="dsh-tools">
+                                  {selectedManagedProduct.marketing.keywords.map(k => <span key={k} className="dsh-badge dsh-badge--off">{k}</span>)}
+                                </div>
+                              )}
+                            </>
+                          ) : (
+                            <EmptyState icon="✨" title="No Marketing Copy Yet" subtitle="Marketing copy is generated automatically when a product is analyzed" />
+                          )}
+                          <div className="dsh-settings-actions" style={{ marginTop: 16 }}>
+                            <button className="dsh-btn dsh-btn--ghost" onClick={() => fetchTabRecommendation('marketing')} disabled={tabRecommendationLoading}>
+                              {tabRecommendationLoading ? (<><span className="dsh-spinner" /> Thinking...</>) : '✨ Get AI Recommendation'}
+                            </button>
+                          </div>
+                          {tabRecommendation && (
+                            <div className="dsh-pricing-ai-box">
+                              <div className="dsh-pricing-ai-box-header">✨ {tabRecommendation.recommendation}</div>
+                              {tabRecommendation.suggested_actions.length > 0 && (
+                                <ul>{tabRecommendation.suggested_actions.map((a, i) => <li key={i}>{a}</li>)}</ul>
+                              )}
+                            </div>
+                          )}
+                        </>
+                      )}
+
+                      {managementTab === 'history' && (
+                        selectedManagedProduct.history.length === 0 ? (
+                          <EmptyState icon="📈" title="No Activity Yet" subtitle="Pricing, stock, and marketing changes will show up here" />
+                        ) : (
+                          <div className="dsh-stock-timeline">
+                            {[...selectedManagedProduct.history].reverse().map(h => (
+                              <div
+                                key={h.id}
+                                className={`dsh-stock-timeline-item ${h.action === 'stocked' && h.details.quantity_change < 0 ? 'dsh-stock-timeline-item--out' : 'dsh-stock-timeline-item--in'}`}
+                              >
+                                <span className="dsh-stock-timeline-dot" />
+                                <div className="dsh-stock-timeline-content">
+                                  <div className="dsh-stock-timeline-change">
+                                    <span className="dsh-badge dsh-badge--off">{h.action}</span>
+                                    {h.action === 'stocked' && `${h.details.quantity_change >= 0 ? '+' : ''}${h.details.quantity_change} units (${h.details.reason || 'adjustment'})`}
+                                    {h.action === 'priced' && `${selectedManagedProduct.currency} ${Number(h.details.applied_price ?? h.details.cost ?? 0).toFixed(2)} (${h.details.strategy || 'manual'})`}
+                                    {h.action === 'searched' && `Sourced from ${h.details.platform || 'search'}`}
+                                    {h.action === 'marketed' && (h.details.note || 'Marketing copy generated')}
+                                  </div>
+                                  <div className="dsh-stock-timeline-date">{new Date(h.date).toLocaleString()}</div>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )
+                      )}
+                    </div>
+                  )}
                 </div>
-              </div>
-            )}
+              )}
+            </div>
           </section>
         )}
 
@@ -3113,34 +3052,45 @@ const deselectAllAgents = useCallback(() => {
         <ProductDetailModal
           product={productModal.product}
           onClose={closeProductModal}
-          onAddToShop={productModal.mode === 'research' ? confirmAddToShop : undefined}
-          adding={addingProduct}
+          onAnalyzeAndSave={analyzeAndSaveProduct}
+          analyzing={analyzingProduct}
           closing={productModalClosing}
-          onAnalyze={analyzeProductWithAi}
-          analyzing={aiAnalyzing}
-          analysis={aiAnalysis}
-          analysisError={aiAnalysisError}
-          onApplyDescription={aiAnalysis?.description ? applyAiDescription : undefined}
-          onPriceThis={productModal.mode === 'saved' ? () => { closeProductModal(); goToPricingFor(productModal.product); } : undefined}
         />
       )}
 
-      {priceHistoryModal && (
-        <PriceHistoryModal
-          modal={priceHistoryModal}
-          loading={priceHistoryLoading}
-          onClose={() => setPriceHistoryModal(null)}
-        />
+      {bulkStockModalOpen && (
+        <div className="dsh-modal-back" onClick={() => setBulkStockModalOpen(false)}>
+          <div className="dsh-modal" onClick={e => e.stopPropagation()}>
+            <h3>✎ Bulk Update Stock</h3>
+            <p className="dsh-price-history-product">{selectedProductCount} item(s) selected</p>
+
+            <div className="dsh-pricing-field">
+              <label>Quantity Change (applied to every selected item)</label>
+              <input
+                type="number" className="dsh-input" placeholder="e.g. -5 or 20" autoFocus
+                value={bulkStockDelta}
+                onChange={e => setBulkStockDelta(e.target.value)}
+              />
+            </div>
+            <div className="dsh-pricing-field">
+              <label>Reason</label>
+              <select className="dsh-settings-select" value={bulkStockReason} onChange={e => setBulkStockReason(e.target.value)}>
+                {STOCK_UPDATE_REASONS.map(r => <option key={r} value={r}>{r}</option>)}
+              </select>
+            </div>
+
+            <div className="dsh-settings-actions">
+              <button className="dsh-btn dsh-btn--primary" onClick={submitBulkStockUpdate} disabled={bulkStockSaving}>
+                {bulkStockSaving ? (<><span className="dsh-spinner" /> Updating...</>) : '✓ Apply to All'}
+              </button>
+              <button className="dsh-btn dsh-btn--ghost" onClick={() => setBulkStockModalOpen(false)} disabled={bulkStockSaving}>
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
-      {pricingHistoryModal && (
-        <PricingHistoryModal
-          modal={pricingHistoryModal}
-          loading={pricingHistoryLoading}
-          onClose={() => setPricingHistoryModal(null)}
-          onExport={exportPricingHistory}
-        />
-      )}
 
       {editingPlatform && (
         <div className="dsh-modal-back" onClick={closePlatformModal}>

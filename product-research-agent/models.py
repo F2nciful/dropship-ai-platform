@@ -101,95 +101,6 @@ class SearchProductsResponse(BaseModel):
     }
 
 
-# ─────────────────────────── Products (DB) ───────────────────────────
-
-class ProductCreate(BaseModel):
-    name: str = Field(..., min_length=1)
-    price: Optional[float] = None
-    currency: str = "USD"
-    image_url: Optional[str] = None
-    url: Optional[str] = None
-    description: Optional[str] = None
-    rating: Optional[float] = None
-    reviews_count: Optional[int] = None
-    orders_count: Optional[int] = None
-    shipping_price: Optional[float] = None
-    seller_name: Optional[str] = None
-    category: Optional[str] = None
-    sku: Optional[str] = None
-    in_stock: bool = True
-    stock_quantity: Optional[int] = None
-    platform: str
-    raw_data: dict[str, Any] = Field(default_factory=dict)
-    generate_ai_summary: bool = Field(
-        default=False, description="If true, call Ollama to generate an AI summary before saving"
-    )
-
-    model_config = {
-        "json_schema_extra": {
-            "example": {
-                "name": "Wireless Bluetooth Earbuds Pro",
-                "price": 19.99,
-                "currency": "USD",
-                "image_url": "https://example.com/image.jpg",
-                "url": "https://www.aliexpress.com/item/123456.html",
-                "rating": 4.5,
-                "reviews_count": 1200,
-                "in_stock": True,
-                "platform": "aliexpress",
-                "generate_ai_summary": False,
-            }
-        }
-    }
-
-
-class ProductUpdate(BaseModel):
-    """Partial update for a saved product — only provided fields are changed."""
-
-    name: Optional[str] = Field(default=None, min_length=1)
-    price: Optional[float] = None
-    currency: Optional[str] = None
-    image_url: Optional[str] = None
-    url: Optional[str] = None
-    description: Optional[str] = None
-    rating: Optional[float] = None
-    seller_name: Optional[str] = None
-    category: Optional[str] = None
-    in_stock: Optional[bool] = None
-    stock_quantity: Optional[int] = None
-
-
-class ProductResponse(BaseModel):
-    id: int
-    name: str
-    price: Optional[float] = None
-    currency: str
-    image_url: Optional[str] = None
-    url: Optional[str] = None
-    description: Optional[str] = None
-    rating: Optional[float] = None
-    reviews_count: Optional[int] = None
-    orders_count: Optional[int] = None
-    shipping_price: Optional[float] = None
-    seller_name: Optional[str] = None
-    category: Optional[str] = None
-    sku: Optional[str] = None
-    in_stock: bool
-    stock_quantity: Optional[int] = None
-    platform: str
-    ai_summary: Optional[str] = None
-    raw_data: dict[str, Any] = Field(default_factory=dict)
-    created_at: datetime
-    updated_at: Optional[datetime] = None
-
-    model_config = {"from_attributes": True}
-
-
-class ProductListResponse(BaseModel):
-    total: int
-    products: list[ProductResponse]
-
-
 # ─────────────────────────── Platforms ───────────────────────────
 
 class ScraperType(str, Enum):
@@ -300,16 +211,6 @@ class AnalyzeProductRequest(BaseModel):
     }
 
 
-class ProductAnalysisResponse(BaseModel):
-    success: bool
-    description: Optional[str] = None
-    suggested_price: Optional[float] = None
-    profit_margin_percent: Optional[float] = None
-    target_audience: Optional[str] = None
-    keywords: list[str] = Field(default_factory=list)
-    message: Optional[str] = Field(default=None, description="Explanation when success is false")
-
-
 class SummarizeProductsRequest(BaseModel):
     products: list[AnalyzeProductRequest] = Field(..., min_length=1)
 
@@ -318,41 +219,6 @@ class SummarizeProductsResponse(BaseModel):
     success: bool
     summary: Optional[str] = None
     message: Optional[str] = Field(default=None, description="Explanation when success is false")
-
-
-# ─────────────────────────── Price Tracking ───────────────────────────
-
-class PriceHistoryEntry(BaseModel):
-    id: int
-    price: float
-    currency: str
-    recorded_at: datetime
-
-    model_config = {"from_attributes": True}
-
-
-class PriceHistoryResponse(BaseModel):
-    product_id: int
-    product_name: str
-    entries: list[PriceHistoryEntry]
-    first_price: Optional[float] = None
-    latest_price: Optional[float] = None
-    change_percent: Optional[float] = None
-
-
-class RefreshPriceResult(BaseModel):
-    product_id: int
-    name: str
-    old_price: Optional[float] = None
-    new_price: Optional[float] = None
-    changed: bool = False
-    status: str
-
-
-class RefreshPricesResponse(BaseModel):
-    updated_count: int
-    failed_count: int
-    results: list[RefreshPriceResult]
 
 
 # ─────────────────────────── Generic ───────────────────────────

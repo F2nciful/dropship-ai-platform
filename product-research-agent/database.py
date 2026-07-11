@@ -1,10 +1,16 @@
 """
 SQLite database setup (SQLAlchemy) for the Product Research Agent.
+
+The `products` / `product_history` / `pricing_strategy` / `inventory_forecast`
+tables are owned by manager_agent.py (the unified Manager Agent) — this module
+only keeps the engine/session/Base plumbing plus the `platforms` registry,
+which is orthogonal to product data and shared by both the raw search
+endpoint (main.py) and the Manager Agent.
 """
 import json
 from datetime import datetime, timezone
 
-from sqlalchemy import create_engine, Column, Integer, String, Float, Boolean, Text, DateTime, ForeignKey
+from sqlalchemy import create_engine, Column, Integer, String, Boolean, Text, DateTime
 from sqlalchemy.orm import sessionmaker, declarative_base, Session
 
 from config import settings
@@ -17,59 +23,6 @@ Base = declarative_base()
 
 def utcnow() -> datetime:
     return datetime.now(timezone.utc)
-
-
-class Product(Base):
-    """Products table — includes fields useful for dropshipping research."""
-
-    __tablename__ = "products"
-
-    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
-
-    # Core fields
-    name = Column(String, nullable=False, index=True)
-    price = Column(Float, nullable=True)
-    currency = Column(String, default="USD")
-    image_url = Column(String, nullable=True)
-    description = Column(Text, nullable=True)
-    rating = Column(Float, nullable=True)
-    platform = Column(String, nullable=False, index=True)
-    raw_data = Column(Text, nullable=True)  # JSON-encoded original scrape payload
-
-    # Dropshipping-relevant fields
-    url = Column(String, nullable=True)
-    reviews_count = Column(Integer, nullable=True)
-    orders_count = Column(Integer, nullable=True)
-    shipping_price = Column(Float, nullable=True)
-    seller_name = Column(String, nullable=True)
-    category = Column(String, nullable=True)
-    sku = Column(String, nullable=True, index=True)
-    in_stock = Column(Boolean, default=True)
-    stock_quantity = Column(Integer, nullable=True)
-    ai_summary = Column(Text, nullable=True)
-
-    created_at = Column(DateTime, default=utcnow)
-    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
-
-    def raw_data_dict(self) -> dict:
-        if not self.raw_data:
-            return {}
-        try:
-            return json.loads(self.raw_data)
-        except (TypeError, ValueError):
-            return {}
-
-
-class PriceHistory(Base):
-    """A price snapshot for a saved product, recorded automatically on save and on refresh."""
-
-    __tablename__ = "price_history"
-
-    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
-    product_id = Column(Integer, ForeignKey("products.id", ondelete="CASCADE"), nullable=False, index=True)
-    price = Column(Float, nullable=False)
-    currency = Column(String, default="USD")
-    recorded_at = Column(DateTime, default=utcnow)
 
 
 class PlatformDB(Base):
