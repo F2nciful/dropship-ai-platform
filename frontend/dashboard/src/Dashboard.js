@@ -3,6 +3,13 @@ import './Dashboard.css';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, LineChart, Line, PieChart, Pie, Cell } from 'recharts';
 
 const API_URL = 'http://localhost:5000/api';
+const RESEARCH_API_URL = 'http://127.0.0.1:8000/api';
+
+const RESEARCH_PLATFORMS = [
+  { id: 'aliexpress', label: 'AliExpress' },
+  { id: 'amazon', label: 'Amazon' },
+  { id: 'ebay', label: 'eBay' },
+];
 
 const T = {
   en: {
@@ -25,7 +32,18 @@ const T = {
     noTasksTitle: 'No Tasks', noTasksSub: 'All clear! No tasks scheduled at the moment',
     noLogsTitle: 'No Activity', noLogsSub: 'Your activity log is empty',
     noDataTitle: 'No Data Available', noDataSub: 'Data is loading or unavailable',
-    clearSearch: 'Clear Search'
+    clearSearch: 'Clear Search',
+    productsResearch: 'Products Research', researchPlaceholder: 'Search products...',
+    searchBtn: 'Search', addToShop: 'Add to Shop', inStock: 'In Stock', outOfStock: 'Out of Stock',
+    noProductsTitle: 'No Products Found', noProductsSub: "We couldn't find any products matching your search",
+    searchPromptTitle: 'Search for Products',
+    searchPromptSub: 'Search AliExpress, Amazon, and eBay to find products for your store',
+    searchFailedTitle: 'Search Failed',
+    searchFailedSub: 'Could not reach the product research service. Make sure the backend is running on port 8000.',
+    retry: 'Retry', addProductTitle: 'Add to Shop', confirmAdd: 'Add to Database',
+    productAdded: 'Product added to database', addFailed: 'Failed to add product',
+    selectPlatform: 'Select at least one platform', noProductsFound: 'No products found',
+    reachFailed: 'Could not reach product research service'
   }
 };
 
@@ -118,6 +136,22 @@ const SkeletonChart = () => (
   </div>
 );
 
+const SkeletonProductCard = () => (
+  <div className="dsh-product-card">
+    <SkelBlock w="100%" h={140} radius={12} />
+    <div style={{ display: 'flex', gap: 8, margin: '12px 0' }}>
+      <SkelLine w={70} h={18} radius={999} />
+      <SkelLine w={60} h={18} radius={999} />
+    </div>
+    <div style={{ marginBottom: 10 }}><SkelLine w="85%" h={16} /></div>
+    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 16 }}>
+      <SkelLine w={60} h={14} />
+      <SkelLine w={50} h={14} />
+    </div>
+    <SkelBlock w="100%" h={36} radius={8} />
+  </div>
+);
+
 const EmptyState = ({ icon, title, subtitle, action }) => (
   <div className="dsh-empty-state">
     <div className="dsh-empty-icon">{icon}</div>
@@ -143,6 +177,15 @@ function Dashboard({ user, onLogout }) {
   const [selectedAgent, setSelectedAgent] = useState(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const toastId = useRef(0);
+
+  const [researchQuery, setResearchQuery] = useState('');
+  const [researchPlatforms, setResearchPlatforms] = useState({ aliexpress: true, amazon: true, ebay: true });
+  const [researchLoading, setResearchLoading] = useState(false);
+  const [researchSearched, setResearchSearched] = useState(false);
+  const [researchResults, setResearchResults] = useState([]);
+  const [researchError, setResearchError] = useState(null);
+  const [selectedResearchProduct, setSelectedResearchProduct] = useState(null);
+  const [addingProduct, setAddingProduct] = useState(false);
 
   const [profits, setProfits] = useState({ 
     daily: 2450.50, 
@@ -297,6 +340,74 @@ function Dashboard({ user, onLogout }) {
     URL.revokeObjectURL(url);
   };
 
+  const searchResearchProducts = useCallback(async () => {
+    if (!researchQuery.trim()) return;
+    const platforms = RESEARCH_PLATFORMS.filter(p => researchPlatforms[p.id]).map(p => p.id);
+    if (platforms.length === 0) {
+      showToast(t.selectPlatform, 'warning');
+      return;
+    }
+
+    setResearchLoading(true);
+    setResearchError(null);
+    setResearchSearched(true);
+
+    try {
+      const res = await fetch(`${RESEARCH_API_URL}/search-products`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query: researchQuery.trim(), platforms, max_results: 12 }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      const results = data.results || [];
+      setResearchResults(results);
+      if (results.length === 0) showToast(t.noProductsFound, 'info');
+    } catch {
+      setResearchError(t.reachFailed);
+      setResearchResults([]);
+      showToast(t.reachFailed, 'error');
+    } finally {
+      setResearchLoading(false);
+    }
+  }, [researchQuery, researchPlatforms, showToast, t]);
+
+  const confirmAddToShop = useCallback(async () => {
+    if (!selectedResearchProduct) return;
+    const p = selectedResearchProduct;
+    setAddingProduct(true);
+    try {
+      const res = await fetch(`${RESEARCH_API_URL}/add-to-database`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: p.name,
+          price: p.price,
+          currency: p.currency || 'USD',
+          image_url: p.image_url,
+          url: p.url,
+          description: p.description,
+          rating: p.rating,
+          reviews_count: p.reviews_count,
+          orders_count: p.orders_count,
+          shipping_price: p.shipping_price,
+          seller_name: p.seller_name,
+          in_stock: p.in_stock !== false,
+          platform: p.platform,
+          raw_data: p.raw_data || {},
+        }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      showToast(t.productAdded, 'success');
+      setResearchResults(prev => prev.map(item => (item === p ? { ...item, _added: true } : item)));
+      setSelectedResearchProduct(null);
+    } catch {
+      showToast(t.addFailed, 'error');
+    } finally {
+      setAddingProduct(false);
+    }
+  }, [selectedResearchProduct, showToast, t]);
+
   const togglePause = (agentId) => {
     setPausedAgents(prev => ({
       ...prev,
@@ -362,6 +473,7 @@ const deselectAllAgents = useCallback(() => {
     { id: 'tasks', icon: '☑', label: t.tasks },
     { id: 'logs', icon: '≣', label: t.logs },
     { id: 'analytics', icon: '📊', label: 'Analytics' },
+    { id: 'research', icon: '📦', label: t.productsResearch },
   ];
 
   return (
@@ -671,6 +783,96 @@ const deselectAllAgents = useCallback(() => {
           </section>
         )}
 
+        {page === 'research' && (
+          <section className="dsh-section">
+            <div className="dsh-section-head">
+              <h2>📦 {t.productsResearch}</h2>
+            </div>
+
+            <div className="dsh-research-controls">
+              <input
+                className="dsh-input dsh-research-input"
+                placeholder={t.researchPlaceholder}
+                value={researchQuery}
+                onChange={e => setResearchQuery(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') searchResearchProducts(); }}
+              />
+              <div className="dsh-platform-checks">
+                {RESEARCH_PLATFORMS.map(p => (
+                  <label key={p.id} className="dsh-platform-check">
+                    <input
+                      type="checkbox"
+                      checked={!!researchPlatforms[p.id]}
+                      onChange={() => setResearchPlatforms(prev => ({ ...prev, [p.id]: !prev[p.id] }))}
+                    />
+                    {p.label}
+                  </label>
+                ))}
+              </div>
+              <button
+                className="dsh-btn dsh-btn--primary"
+                onClick={searchResearchProducts}
+                disabled={researchLoading || !researchQuery.trim()}
+              >
+                {researchLoading ? (<><span className="dsh-spinner" /> Searching...</>) : `🔍 ${t.searchBtn}`}
+              </button>
+            </div>
+
+            {researchLoading ? (
+              <div className="dsh-grid">{[0, 1, 2, 3, 4, 5].map(i => <SkeletonProductCard key={i} />)}</div>
+            ) : researchError ? (
+              <EmptyState
+                icon="⚠️"
+                title={t.searchFailedTitle}
+                subtitle={t.searchFailedSub}
+                action={<button className="dsh-btn dsh-btn--primary" onClick={searchResearchProducts}>⟳ {t.retry}</button>}
+              />
+            ) : !researchSearched ? (
+              <EmptyState icon="📦" title={t.searchPromptTitle} subtitle={t.searchPromptSub} />
+            ) : researchResults.length === 0 ? (
+              <EmptyState icon="🔍" title={t.noProductsTitle} subtitle={t.noProductsSub} />
+            ) : (
+              <div className="dsh-grid">
+                {researchResults.map((p, i) => (
+                  <div key={p.url || `${p.platform}-${i}`} className="dsh-product-card">
+                    <div className="dsh-product-image">
+                      {p.image_url ? (
+                        <img src={p.image_url} alt={p.name} onError={e => { e.target.style.display = 'none'; }} />
+                      ) : (
+                        <span>📦</span>
+                      )}
+                    </div>
+                    <div className="dsh-product-badges">
+                      <span className="dsh-badge dsh-badge--off">{p.platform}</span>
+                      <span className={`dsh-badge ${p.in_stock === false ? 'dsh-badge--err' : 'dsh-badge--on'}`}>
+                        <span className="dsh-dot" />{p.in_stock === false ? t.outOfStock : t.inStock}
+                      </span>
+                    </div>
+                    <h3 className="dsh-product-name" title={p.name}>{p.name}</h3>
+                    <div className="dsh-product-meta">
+                      <span className="dsh-product-price">
+                        {p.price != null ? `${p.currency || 'USD'} ${Number(p.price).toFixed(2)}` : '—'}
+                      </span>
+                      {p.rating != null && (
+                        <span className="dsh-product-rating">
+                          ⭐ {Number(p.rating).toFixed(1)}{p.reviews_count ? ` (${p.reviews_count})` : ''}
+                        </span>
+                      )}
+                    </div>
+                    <button
+                      className="dsh-btn dsh-btn--primary dsh-product-add-btn"
+                      onClick={() => setSelectedResearchProduct(p)}
+                      disabled={p._added}
+                    >
+                      {p._added ? '✓ Added' : `+ ${t.addToShop}`}
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+        )}
+
         {page === 'tasks' && (
           <section className="dsh-section">
             <div className="dsh-section-head">
@@ -919,6 +1121,48 @@ const deselectAllAgents = useCallback(() => {
                   Cancel
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {selectedResearchProduct && (
+        <div className="dsh-modal-back" onClick={() => !addingProduct && setSelectedResearchProduct(null)}>
+          <div className="dsh-modal dsh-product-modal" onClick={e => e.stopPropagation()}>
+            <h3>{t.addProductTitle}</h3>
+            <div className="dsh-product-modal-body">
+              <div className="dsh-product-modal-image">
+                {selectedResearchProduct.image_url ? (
+                  <img src={selectedResearchProduct.image_url} alt={selectedResearchProduct.name} onError={e => { e.target.style.display = 'none'; }} />
+                ) : (
+                  <span>📦</span>
+                )}
+              </div>
+              <div className="dsh-product-modal-info">
+                <h4>{selectedResearchProduct.name}</h4>
+                <div className="dsh-modal-rows">
+                  <div><b>Price:</b> {selectedResearchProduct.price != null ? `${selectedResearchProduct.currency || 'USD'} ${Number(selectedResearchProduct.price).toFixed(2)}` : '—'}</div>
+                  <div><b>Rating:</b> {selectedResearchProduct.rating != null ? `⭐ ${Number(selectedResearchProduct.rating).toFixed(1)}` : '—'}</div>
+                  <div><b>Reviews:</b> {selectedResearchProduct.reviews_count ?? '—'}</div>
+                  <div><b>{t.status}:</b> <span className="dsh-badge dsh-badge--off">{selectedResearchProduct.platform}</span></div>
+                  <div><b>Stock:</b> <StatusBadge status={selectedResearchProduct.in_stock === false ? 'offline' : 'online'} /></div>
+                  {selectedResearchProduct.seller_name && <div><b>Seller:</b> {selectedResearchProduct.seller_name}</div>}
+                  {selectedResearchProduct.shipping_price != null && (
+                    <div><b>Shipping:</b> {selectedResearchProduct.currency || 'USD'} {Number(selectedResearchProduct.shipping_price).toFixed(2)}</div>
+                  )}
+                  {selectedResearchProduct.url && (
+                    <div><b>Link:</b> <a href={selectedResearchProduct.url} target="_blank" rel="noreferrer">View on {selectedResearchProduct.platform}</a></div>
+                  )}
+                </div>
+              </div>
+            </div>
+            <div className="dsh-settings-actions">
+              <button className="dsh-btn dsh-btn--primary" onClick={confirmAddToShop} disabled={addingProduct}>
+                {addingProduct ? (<><span className="dsh-spinner" /> Adding...</>) : `✓ ${t.confirmAdd}`}
+              </button>
+              <button className="dsh-btn dsh-btn--ghost" onClick={() => setSelectedResearchProduct(null)} disabled={addingProduct}>
+                {t.close}
+              </button>
             </div>
           </div>
         </div>
