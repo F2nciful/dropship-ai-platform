@@ -624,6 +624,7 @@ class AnalyzeProductRequest(BaseModel):
     reorder_level: int = Field(default=10, ge=0)
     strategy: str | None = Field(default="mid", description="One of: budget, mid, premium, aggressive")
     profit_margin_percent: float | None = Field(default=None, ge=0)
+    sync_to_shopify: bool = Field(default=False, description="If true, also push the analyzed product to Shopify")
 
 
 class PricingSummary(BaseModel):
@@ -686,6 +687,8 @@ class ManagerProductDetail(BaseModel):
     raw_data: dict = Field(default_factory=dict)
     created_at: datetime
     updated_at: datetime | None
+    shopify_product_id: str | None = Field(default=None, description="Set once this product has been synced to Shopify")
+    shopify_sync_status: str | None = Field(default=None, description="pending|draft|active|failed, if ever synced")
 
 
 class ManagerProductSummary(BaseModel):
@@ -822,6 +825,17 @@ def _build_product_detail(db: Session, product: Product) -> ManagerProductDetail
 
     warnings = _build_pricing_warnings(margin_percent, product.supplier_price) + _build_inventory_warnings(db, product, stock_status)
 
+    shopify_product_id, shopify_sync_status = None, None
+    try:
+        import shopify_integration  # local import — see shopify_integration.py's module docstring
+        shopify_row = db.query(shopify_integration.ShopifySync).filter(
+            shopify_integration.ShopifySync.manager_product_id == product.id
+        ).first()
+        if shopify_row:
+            shopify_product_id, shopify_sync_status = shopify_row.shopify_product_id, shopify_row.sync_status
+    except ImportError:
+        pass  # Shopify integration isn't installed/loaded — fine, these fields just stay None
+
     return ManagerProductDetail(
         id=product.id, name=product.name, description=product.description, category=product.category,
         platform=product.platform, status=product.status, stock_status=stock_status,
@@ -835,6 +849,7 @@ def _build_product_detail(db: Session, product: Product) -> ManagerProductDetail
         pricing=pricing_summary, forecast=forecast_summary, marketing=marketing_summary,
         warnings=warnings, history=history, raw_data=product.raw_data_dict(),
         created_at=product.created_at, updated_at=product.updated_at,
+        shopify_product_id=shopify_product_id, shopify_sync_status=shopify_sync_status,
     )
 
 
@@ -850,20 +865,16 @@ def _get_product_or_404(db: Session, product_id: int) -> Product:
 router = APIRouter(prefix="/api/manager", tags=["manager"])
 
 
-@router.post(
-    "/analyze-product",
-    response_model=ManagerProductDetail,
-    status_code=201,
-    summary="Full product analysis pipeline (search + price + inventory + marketing)",
-    responses={422: {"description": "A supplier/cost price is required"}},
-)
-def analyze_product(payload: AnalyzeProductRequest, db: Session = Depends(get_db)):
+def _run_analyze_pipeline(payload: AnalyzeProductRequest, db: Session) -> Product:
     """
-    Takes a product (typically a search result the user picked) and runs the full pipeline in
-    one transaction: persists it, computes a fee-aware suggested selling price with an AI
-    recommendation, produces an initial demand forecast, generates AI marketing copy, and logs
-    every step to `product_history`. Never fails outright on an Ollama sub-step — only a real
-    database error rolls back the whole save.
+    The full analyze pipeline, extracted from the `/analyze-product` route so
+    shopify_scheduler.py's automation job can run the exact same pipeline
+    directly (rather than duplicating it or calling back over HTTP). Persists
+    the product, computes a fee-aware suggested selling price with an AI
+    recommendation, produces an initial demand forecast, generates AI
+    marketing copy, and logs every step to `product_history`. Never fails
+    outright on an Ollama sub-step — only a real database error rolls back
+    the whole save.
     """
     if payload.price is None:
         raise HTTPException(status_code=422, detail="A supplier/cost price is required to analyze a product")
@@ -949,6 +960,35 @@ def analyze_product(payload: AnalyzeProductRequest, db: Session = Depends(get_db
         raise HTTPException(status_code=500, detail=f"Database error while saving product: {exc}") from exc
 
     db.refresh(product)
+    return product
+
+
+@router.post(
+    "/analyze-product",
+    response_model=ManagerProductDetail,
+    status_code=201,
+    summary="Full product analysis pipeline (search + price + inventory + marketing)",
+    responses={422: {"description": "A supplier/cost price is required"}},
+)
+def analyze_product(payload: AnalyzeProductRequest, db: Session = Depends(get_db)):
+    """
+    Takes a product (typically a search result the user picked) and runs the full pipeline in
+    one transaction: persists it, computes a fee-aware suggested selling price with an AI
+    recommendation, produces an initial demand forecast, generates AI marketing copy, and logs
+    every step to `product_history`. Never fails outright on an Ollama sub-step — only a real
+    database error rolls back the whole save.
+
+    If `sync_to_shopify` is set, also pushes the analyzed product to Shopify immediately
+    (manual path — respects Shopify's default publish behavior, unlike the scheduler's
+    automation job which always syncs as a draft). A Shopify failure never fails this
+    endpoint — it's logged and reflected in the response's `shopify_sync_status`.
+    """
+    product = _run_analyze_pipeline(payload, db)
+
+    if payload.sync_to_shopify:
+        import shopify_integration  # local import — see shopify_integration.py's module docstring
+        shopify_integration.sync_product_to_shopify(db, product, publish=True)
+
     return _build_product_detail(db, product)
 
 

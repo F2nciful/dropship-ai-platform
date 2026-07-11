@@ -27,6 +27,22 @@ class Settings(BaseSettings):
     # --- CORS (React frontend) ---
     cors_origins: str = "http://localhost:3000,http://127.0.0.1:3000"
 
+    # --- Shopify (product sync + automation) ---
+    # Create a custom app in your store's Shopify Admin (Settings > Apps and
+    # sales channels > Develop apps), grant it products:write/products:read/
+    # inventory:write, and put its Admin API access token + your store's
+    # myshopify.com domain here (or in .env). shopify_api_secret is the app's
+    # API secret, used only to verify incoming webhook signatures.
+    shopify_store_url: str = ""
+    shopify_api_token: str = ""
+    shopify_api_secret: str = ""
+    shopify_api_version: str = "2024-10"
+    shopify_rate_limit_seconds: float = 0.5  # Shopify's standard REST budget is ~2 req/s
+    shopify_max_retries: int = 3
+    # Minimum profit margin (%) a scheduler-discovered product must clear before
+    # it's auto-analyzed and synced to Shopify (as a draft — see shopify_scheduler.py).
+    shopify_default_margin_threshold: float = 30.0
+
     # --- eBay Browse API ---
     # eBay's robots.txt explicitly disallows crawling its search results page
     # (Disallow: /sch/i.html?_nkw=), and it live-blocks non-browser traffic there
@@ -69,6 +85,10 @@ class Settings(BaseSettings):
     @property
     def cors_origins_list(self) -> list[str]:
         return [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]
+
+    @property
+    def shopify_configured(self) -> bool:
+        return bool(self.shopify_store_url and self.shopify_api_token)
 
 
 @lru_cache

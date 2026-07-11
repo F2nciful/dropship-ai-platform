@@ -5,6 +5,8 @@ Searches AliExpress, Amazon, and eBay for products (optionally summarizing
 raw results with a local Ollama model), and delegates everything about a
 *saved* product — pricing, inventory, marketing, and the saved-product
 catalog itself — to the unified Manager Agent (manager_agent.py).
+Shopify sync (shopify_integration.py) and its automation scheduler
+(shopify_scheduler.py) build on top of that same product catalog.
 Designed to be consumed by the Nexus React dashboard.
 """
 import json
@@ -25,6 +27,8 @@ import ollama_integration
 import scraper_aliexpress
 import scraper_amazon
 import scraper_ebay
+import shopify_integration
+import shopify_scheduler
 from config import settings
 from database import PlatformDB, get_db, init_db, seed_builtin_platforms
 from models import (
@@ -58,8 +62,10 @@ async def lifespan(app: FastAPI):
     logger.info("Initializing database...")
     init_db()
     seed_builtin_platforms()
+    shopify_scheduler.start_scheduler()
     logger.info("Product Research Agent ready on port %s", settings.port)
     yield
+    shopify_scheduler.stop_scheduler()
 
 
 TAGS_METADATA = [
@@ -68,6 +74,8 @@ TAGS_METADATA = [
     {"name": "platforms", "description": "Manage which e-commerce platforms (built-in and custom) can be searched."},
     {"name": "ai", "description": "Ollama-powered product comparison."},
     {"name": "manager", "description": "The unified Manager Agent: product search analysis, pricing, inventory, and marketing — all in one place."},
+    {"name": "shopify", "description": "Sync analyzed products to a Shopify store and keep price/inventory in sync."},
+    {"name": "scheduler", "description": "Automated discovery — scans seed keywords on a schedule and auto-syncs profitable finds to Shopify as drafts."},
 ]
 
 app = FastAPI(
@@ -104,6 +112,8 @@ app.add_middleware(
 )
 
 app.include_router(manager_agent.router)
+app.include_router(shopify_integration.router)
+app.include_router(shopify_scheduler.router)
 
 
 @app.exception_handler(Exception)

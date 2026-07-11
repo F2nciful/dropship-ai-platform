@@ -509,6 +509,20 @@ function Dashboard({ user, onLogout }) {
     format: 'csv', columns: EXPORT_COLUMNS.map(c => c.key), dateFrom: '', dateTo: '',
   });
 
+  // ── Shopify Sync ──
+  const [shopifyStatus, setShopifyStatus] = useState(null);
+  const [shopifyConnecting, setShopifyConnecting] = useState(false);
+  const [shopifyStats, setShopifyStats] = useState(null);
+  const [shopifySyncLog, setShopifySyncLog] = useState([]);
+  const [shopifySyncing, setShopifySyncing] = useState(false);
+  const [schedulerConfig, setSchedulerConfig] = useState(null);
+  const [schedulerLog, setSchedulerLog] = useState([]);
+  const [schedulerSaving, setSchedulerSaving] = useState(false);
+  const [schedulerForm, setSchedulerForm] = useState({
+    interval_hours: 24, seed_keywords: '', platforms: { aliexpress: true, amazon: true, ebay: true },
+    pricing_strategy: 'mid', margin_threshold: 30, max_candidates_per_keyword: 3, category_blacklist: '',
+  });
+
   const [platforms, setPlatforms] = useState([]);
   const [platformsLoading, setPlatformsLoading] = useState(true);
   const [editingPlatform, setEditingPlatform] = useState(null);
@@ -1288,6 +1302,170 @@ function Dashboard({ user, onLogout }) {
     }
   }, [selectedManagedProduct, showToast]);
 
+  const fetchShopifyStatus = useCallback(async () => {
+    try {
+      const res = await fetch(`${RESEARCH_API_URL}/shopify/status`);
+      setShopifyStatus(res.ok ? await res.json() : null);
+    } catch {
+      setShopifyStatus(null);
+    }
+  }, []);
+
+  const fetchShopifyStats = useCallback(async () => {
+    try {
+      const res = await fetch(`${RESEARCH_API_URL}/shopify/stats`);
+      setShopifyStats(res.ok ? await res.json() : null);
+    } catch {
+      setShopifyStats(null);
+    }
+  }, []);
+
+  const fetchShopifySyncLog = useCallback(async () => {
+    try {
+      const res = await fetch(`${RESEARCH_API_URL}/shopify/sync-log?limit=30`);
+      setShopifySyncLog(res.ok ? await res.json() : []);
+    } catch {
+      setShopifySyncLog([]);
+    }
+  }, []);
+
+  const fetchSchedulerStatus = useCallback(async () => {
+    try {
+      const res = await fetch(`${RESEARCH_API_URL}/scheduler/status`);
+      if (!res.ok) return;
+      const data = await res.json();
+      setSchedulerConfig(data.config);
+      setSchedulerLog(data.recent_log || []);
+      setSchedulerForm({
+        interval_hours: data.config.interval_hours,
+        seed_keywords: data.config.seed_keywords.join('\n'),
+        platforms: {
+          aliexpress: data.config.platforms.includes('aliexpress'),
+          amazon: data.config.platforms.includes('amazon'),
+          ebay: data.config.platforms.includes('ebay'),
+        },
+        pricing_strategy: data.config.pricing_strategy,
+        margin_threshold: data.config.margin_threshold,
+        max_candidates_per_keyword: data.config.max_candidates_per_keyword,
+        category_blacklist: data.config.category_blacklist.join('\n'),
+      });
+    } catch {
+      setSchedulerConfig(null);
+    }
+  }, []);
+
+  const refreshShopifyPage = useCallback(() => {
+    fetchShopifyStatus();
+    fetchShopifyStats();
+    fetchShopifySyncLog();
+    fetchSchedulerStatus();
+  }, [fetchShopifyStatus, fetchShopifyStats, fetchShopifySyncLog, fetchSchedulerStatus]);
+
+  useEffect(() => {
+    if (page !== 'shopify') return;
+    refreshShopifyPage();
+    if (savedProducts.length === 0) fetchSavedProducts();
+  }, [page, refreshShopifyPage, fetchSavedProducts, savedProducts.length]);
+
+  const connectShopify = useCallback(async () => {
+    setShopifyConnecting(true);
+    try {
+      const res = await fetch(`${RESEARCH_API_URL}/shopify/connect`, { method: 'POST' });
+      const data = await res.json();
+      showToast(data.message, data.connected ? 'success' : 'warning');
+    } catch {
+      showToast('Could not reach the Shopify integration', 'error');
+    } finally {
+      setShopifyConnecting(false);
+      fetchShopifyStatus();
+    }
+  }, [showToast, fetchShopifyStatus]);
+
+  const syncSelectedToShopify = useCallback(async (publish) => {
+    const ids = Object.keys(selectedProductIds).map(Number);
+    if (ids.length === 0) {
+      showToast('Select at least one product first', 'warning');
+      return;
+    }
+    setShopifySyncing(true);
+    try {
+      const res = await fetch(`${RESEARCH_API_URL}/shopify/bulk-sync`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ manager_product_ids: ids, publish }),
+      });
+      const data = await res.json();
+      showToast(
+        `${data.synced_count} synced${data.failed_count ? `, ${data.failed_count} failed` : ''}`,
+        data.failed_count ? 'warning' : 'success'
+      );
+    } catch {
+      showToast('Bulk sync failed', 'error');
+    } finally {
+      setShopifySyncing(false);
+      fetchShopifyStats();
+      fetchShopifySyncLog();
+    }
+  }, [selectedProductIds, showToast, fetchShopifyStats, fetchShopifySyncLog]);
+
+  const buildSchedulerPayload = () => ({
+    interval_hours: Number(schedulerForm.interval_hours),
+    seed_keywords: schedulerForm.seed_keywords.split('\n').map(s => s.trim()).filter(Boolean),
+    platforms: Object.entries(schedulerForm.platforms).filter(([, v]) => v).map(([k]) => k),
+    pricing_strategy: schedulerForm.pricing_strategy,
+    margin_threshold: Number(schedulerForm.margin_threshold),
+    max_candidates_per_keyword: Number(schedulerForm.max_candidates_per_keyword),
+    category_blacklist: schedulerForm.category_blacklist.split('\n').map(s => s.trim()).filter(Boolean),
+  });
+
+  const saveSchedulerConfig = useCallback(async () => {
+    setSchedulerSaving(true);
+    try {
+      const res = await fetch(`${RESEARCH_API_URL}/scheduler/config`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(buildSchedulerPayload()),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.detail || `HTTP ${res.status}`);
+      }
+      showToast('Schedule settings saved', 'success');
+      fetchSchedulerStatus();
+    } catch (err) {
+      showToast(err.message || 'Could not save schedule settings', 'error');
+    } finally {
+      setSchedulerSaving(false);
+    }
+  }, [schedulerForm, showToast, fetchSchedulerStatus]);
+
+  const toggleAutoSync = useCallback(async () => {
+    setSchedulerSaving(true);
+    const enabling = !schedulerConfig?.enabled;
+    try {
+      if (enabling) {
+        const res = await fetch(`${RESEARCH_API_URL}/scheduler/start-auto-sync`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(buildSchedulerPayload()),
+        });
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          throw new Error(body.detail || `HTTP ${res.status}`);
+        }
+        showToast('Auto-sync started', 'success');
+      } else {
+        await fetch(`${RESEARCH_API_URL}/scheduler/stop-auto-sync`, { method: 'POST' });
+        showToast('Auto-sync stopped', 'info');
+      }
+      fetchSchedulerStatus();
+    } catch (err) {
+      showToast(err.message || 'Could not update the schedule', 'error');
+    } finally {
+      setSchedulerSaving(false);
+    }
+  }, [schedulerConfig, showToast, fetchSchedulerStatus]);
+
   const generateReport = useCallback(async () => {
     setReportLoading(true);
     try {
@@ -1424,6 +1602,7 @@ const deselectAllAgents = useCallback(() => {
     { id: 'analytics', icon: '📊', label: 'Analytics' },
     { id: 'research', icon: '📦', label: t.productsResearch },
     { id: 'products', icon: '🛍️', label: 'Product Management' },
+    { id: 'shopify', icon: '🛍️', label: 'Shopify Sync' },
     { id: 'platforms', icon: '⚙️', label: t.platformSettings },
     { id: 'usersettings', icon: '⚙️', label: 'Settings' },
   ];
@@ -2595,6 +2774,227 @@ const deselectAllAgents = useCallback(() => {
                   )}
                 </div>
               )}
+            </div>
+          </section>
+        )}
+
+        {page === 'shopify' && (
+          <section className="dsh-section">
+            <div className="dsh-section-head">
+              <h2>🛍️ Shopify Sync</h2>
+              <div className="dsh-tools">
+                <span className={`dsh-badge ${shopifyStatus?.connected ? 'dsh-badge--on' : 'dsh-badge--err'}`}>
+                  <span className="dsh-dot" />
+                  {shopifyStatus?.connected ? `Connected — ${shopifyStatus.shop_name}` : shopifyStatus?.configured ? 'Not reachable' : 'Not configured'}
+                </span>
+                <button className="dsh-btn dsh-btn--ghost" onClick={connectShopify} disabled={shopifyConnecting}>
+                  {shopifyConnecting ? (<><span className="dsh-spinner" /> Checking...</>) : '🔌 Connect'}
+                </button>
+              </div>
+            </div>
+
+            {!shopifyStatus?.configured && (
+              <div className="dsh-ai-error" style={{ marginBottom: 20 }}>
+                ⚠️ Set <code>SHOPIFY_STORE_URL</code> and <code>SHOPIFY_API_TOKEN</code> in the backend's <code>.env</code>
+                {' '}(create a custom app in your store's Admin under Settings → Apps and sales channels → Develop apps,
+                with products:write/products:read/inventory:write scopes) — the token is never entered here in the browser.
+              </div>
+            )}
+
+            {shopifyStats && (
+              <div className="dsh-inventory-summary">
+                <div className="dsh-inventory-summary-stat">
+                  <span className="dsh-inventory-summary-label">Products Synced</span>
+                  <span className="dsh-inventory-summary-value">{shopifyStats.products_synced}</span>
+                </div>
+                <div className="dsh-inventory-summary-stat">
+                  <span className="dsh-inventory-summary-label">Active</span>
+                  <span className="dsh-inventory-summary-value">{shopifyStats.active_count}</span>
+                </div>
+                <div className="dsh-inventory-summary-stat dsh-inventory-summary-stat--warning">
+                  <span className="dsh-inventory-summary-label">Draft</span>
+                  <span className="dsh-inventory-summary-value">{shopifyStats.draft_count}</span>
+                </div>
+                <div className="dsh-inventory-summary-stat dsh-inventory-summary-stat--danger">
+                  <span className="dsh-inventory-summary-label">Failed</span>
+                  <span className="dsh-inventory-summary-value">{shopifyStats.failed_count}</span>
+                </div>
+                <div className="dsh-inventory-summary-stat">
+                  <span className="dsh-inventory-summary-label">Synced Value</span>
+                  <span className="dsh-inventory-summary-value dsh-inventory-summary-value--gold">${Number(shopifyStats.total_selling_value).toFixed(2)}</span>
+                </div>
+                <div className="dsh-inventory-summary-stat">
+                  <span className="dsh-inventory-summary-label">Success Rate</span>
+                  <span className="dsh-inventory-summary-value">{shopifyStats.success_rate_percent}%</span>
+                </div>
+              </div>
+            )}
+
+            <div className="dsh-pm-layout">
+              <div className="dsh-pm-left">
+                <h3 className="dsh-settings-panel-title">Manual Sync</h3>
+                <p className="dsh-row-sub">
+                  {selectedProductCount > 0
+                    ? `${selectedProductCount} product(s) selected in Product Management`
+                    : 'Select products in the Product Management tab first, then come back here to sync them.'}
+                </p>
+                <div className="dsh-settings-actions">
+                  <button className="dsh-btn dsh-btn--primary" onClick={() => syncSelectedToShopify(true)} disabled={shopifySyncing || selectedProductCount === 0}>
+                    {shopifySyncing ? (<><span className="dsh-spinner" /> Syncing...</>) : '✓ Sync & Publish'}
+                  </button>
+                  <button className="dsh-btn dsh-btn--ghost" onClick={() => syncSelectedToShopify(false)} disabled={shopifySyncing || selectedProductCount === 0}>
+                    Sync as Draft
+                  </button>
+                  <button className="dsh-btn dsh-btn--ghost" onClick={() => setPage('products')}>🛍️ Go to Product Management</button>
+                </div>
+
+                <h3 className="dsh-settings-panel-title" style={{ marginTop: 28 }}>Sync History</h3>
+                {shopifySyncLog.length === 0 ? (
+                  <EmptyState icon="📈" title="No Sync Activity Yet" subtitle="Synced products, price/inventory pushes, and webhooks will show up here" />
+                ) : (
+                  <div className="dsh-stock-timeline">
+                    {shopifySyncLog.map(entry => (
+                      <div key={entry.id} className={`dsh-stock-timeline-item ${entry.status === 'success' ? 'dsh-stock-timeline-item--in' : 'dsh-stock-timeline-item--out'}`}>
+                        <span className="dsh-stock-timeline-dot" />
+                        <div className="dsh-stock-timeline-content">
+                          <div className="dsh-stock-timeline-change">
+                            <span className="dsh-badge dsh-badge--off">{entry.action}</span>
+                            {entry.product_name ? `${entry.product_name} — ` : ''}{entry.message}
+                          </div>
+                          <div className="dsh-stock-timeline-date">{new Date(entry.created_at).toLocaleString()}</div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div className="dsh-pm-right" style={{ position: 'static', maxHeight: 'none' }}>
+                <h3 className="dsh-settings-panel-title">Automation Schedule</h3>
+                <div className="dsh-settings-item" style={{ marginBottom: 16 }}>
+                  <div className="dsh-settings-item-text">
+                    <div className="dsh-settings-item-name">Auto-sync</div>
+                    <div className="dsh-settings-item-desc">
+                      {schedulerConfig?.enabled
+                        ? `Running every ${schedulerConfig.interval_hours}h — next run ${schedulerConfig.next_run_at ? new Date(schedulerConfig.next_run_at).toLocaleString() : '—'}`
+                        : 'Currently off — scheduled syncs always create Shopify drafts, never publish automatically'}
+                    </div>
+                  </div>
+                  <label className="dsh-toggle">
+                    <input type="checkbox" checked={!!schedulerConfig?.enabled} onChange={toggleAutoSync} disabled={schedulerSaving} />
+                    <span className="dsh-toggle-slider" />
+                  </label>
+                </div>
+
+                <div className="dsh-pricing-field">
+                  <label>Interval</label>
+                  <select
+                    className="dsh-settings-select"
+                    value={schedulerForm.interval_hours}
+                    onChange={e => setSchedulerForm(f => ({ ...f, interval_hours: Number(e.target.value) }))}
+                  >
+                    <option value={1}>Every 1 hour</option>
+                    <option value={4}>Every 4 hours</option>
+                    <option value={12}>Every 12 hours</option>
+                    <option value={24}>Every 24 hours</option>
+                  </select>
+                </div>
+
+                <div className="dsh-pricing-field">
+                  <label>Platforms to scan</label>
+                  <div className="dsh-platform-checks">
+                    {RESEARCH_PLATFORMS.map(p => (
+                      <label key={p.id} className="dsh-platform-check">
+                        <input
+                          type="checkbox"
+                          checked={!!schedulerForm.platforms[p.id]}
+                          onChange={() => setSchedulerForm(f => ({ ...f, platforms: { ...f.platforms, [p.id]: !f.platforms[p.id] } }))}
+                        />
+                        {p.label}
+                      </label>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="dsh-pricing-field">
+                  <label>Seed keywords (one per line)</label>
+                  <textarea
+                    className="dsh-input dsh-platform-config-textarea"
+                    placeholder={'wireless earbuds\nphone case\nled strip lights'}
+                    value={schedulerForm.seed_keywords}
+                    onChange={e => setSchedulerForm(f => ({ ...f, seed_keywords: e.target.value }))}
+                  />
+                </div>
+
+                <div className="dsh-pricing-field">
+                  <label>Pricing strategy</label>
+                  <div className="dsh-pill-toggle-group">
+                    {Object.entries(STRATEGY_LABELS).filter(([k]) => k !== 'custom').map(([k, label]) => (
+                      <button
+                        key={k}
+                        type="button"
+                        className={`dsh-pill-toggle ${schedulerForm.pricing_strategy === k ? 'dsh-pill-toggle--active' : ''}`}
+                        onClick={() => setSchedulerForm(f => ({ ...f, pricing_strategy: k }))}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="dsh-pricing-field">
+                  <label>Minimum margin % to auto-sync (must clear the chosen strategy's margin)</label>
+                  <input
+                    type="number" min="0" className="dsh-input"
+                    value={schedulerForm.margin_threshold}
+                    onChange={e => setSchedulerForm(f => ({ ...f, margin_threshold: e.target.value }))}
+                  />
+                </div>
+
+                <div className="dsh-pricing-field">
+                  <label>Max candidates per keyword</label>
+                  <input
+                    type="number" min="1" max="10" className="dsh-input"
+                    value={schedulerForm.max_candidates_per_keyword}
+                    onChange={e => setSchedulerForm(f => ({ ...f, max_candidates_per_keyword: e.target.value }))}
+                  />
+                </div>
+
+                <div className="dsh-pricing-field">
+                  <label>Blacklisted seed keywords (one per line, skipped even if listed above)</label>
+                  <textarea
+                    className="dsh-input dsh-platform-config-textarea"
+                    value={schedulerForm.category_blacklist}
+                    onChange={e => setSchedulerForm(f => ({ ...f, category_blacklist: e.target.value }))}
+                  />
+                </div>
+
+                <div className="dsh-settings-actions">
+                  <button className="dsh-btn dsh-btn--primary" onClick={saveSchedulerConfig} disabled={schedulerSaving}>
+                    {schedulerSaving ? (<><span className="dsh-spinner" /> Saving...</>) : '✓ Save Settings'}
+                  </button>
+                </div>
+
+                <h3 className="dsh-settings-panel-title" style={{ marginTop: 24 }}>Discovery Activity</h3>
+                {schedulerLog.length === 0 ? (
+                  <p className="dsh-row-sub">No discovery runs yet.</p>
+                ) : (
+                  <div className="dsh-stock-timeline">
+                    {schedulerLog.map(entry => (
+                      <div key={entry.id} className={`dsh-stock-timeline-item ${entry.status === 'success' ? 'dsh-stock-timeline-item--in' : 'dsh-stock-timeline-item--out'}`}>
+                        <span className="dsh-stock-timeline-dot" />
+                        <div className="dsh-stock-timeline-content">
+                          <div className="dsh-stock-timeline-change">
+                            <span className="dsh-badge dsh-badge--off">{entry.action}</span>
+                            {entry.message}
+                          </div>
+                          <div className="dsh-stock-timeline-date">{new Date(entry.created_at).toLocaleString()}</div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
           </section>
         )}
