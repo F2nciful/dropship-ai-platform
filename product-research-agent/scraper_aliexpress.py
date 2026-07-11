@@ -1,95 +1,176 @@
 """
 AliExpress product search scraper.
 
-NOTE: AliExpress renders most search results client-side via JavaScript, and
-its markup/selectors change frequently. This scraper does a best-effort
-parse of the server-rendered HTML and is intentionally defensive — it never
-raises to the caller, it just returns whatever it could extract (possibly an
-empty list) so a single flaky platform never breaks a combined search.
+AliExpress server-renders its search results as a large JSON blob embedded in
+a <script> tag (`window._dida_config_._init_data_ = { data: {...} }`) rather
+than as plain HTML product cards — this scraper extracts and parses that JSON
+directly, which is far more reliable than CSS-selector scraping against a
+site whose class names are build-hashed and change on every deploy. A CSS-
+selector fallback is kept for resilience in case AliExpress ever serves a
+different page variant that doesn't include the JSON blob.
+
+AliExpress actively bot-detects: bursts of requests (or unusual cookie/header
+combinations) can trigger a CAPTCHA "punish" interstitial instead of real
+results — confirmed live while building this scraper. That page is detected
+explicitly and treated the same as any other failure: an empty list, logged,
+never a crash, never fabricated data standing in for a real result.
 """
+import json
 import logging
 import re
-import time
 
-import requests
 from bs4 import BeautifulSoup
 
+import scrape_utils
 from config import settings
 
 logger = logging.getLogger("scraper.aliexpress")
 
 SEARCH_URL = "https://www.aliexpress.com/wholesale"
+ITEM_URL_TEMPLATE = "https://www.aliexpress.com/item/{product_id}.html"
 
-_last_request_time = 0.0
-
-
-def _rate_limit() -> None:
-    global _last_request_time
-    elapsed = time.monotonic() - _last_request_time
-    wait = settings.scrape_rate_limit_seconds - elapsed
-    if wait > 0:
-        time.sleep(wait)
-    _last_request_time = time.monotonic()
+_limiter = scrape_utils.RateLimiter(settings.scrape_rate_limit_seconds)
+_INIT_DATA_RE = re.compile(r"window\._dida_config_\._init_data_\s*=\s*\{\s*data:\s*")
 
 
-def _session() -> requests.Session:
-    session = requests.Session()
-    session.headers.update(
-        {
-            "User-Agent": settings.scrape_user_agent,
-            "Accept-Language": "en-US,en;q=0.9",
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        }
-    )
-    return session
-
-
-def _fetch(session: requests.Session, url: str, params: dict) -> requests.Response | None:
-    last_error: Exception | None = None
-    for attempt in range(1, settings.scrape_max_retries + 1):
-        try:
-            _rate_limit()
-            response = session.get(url, params=params, timeout=settings.scrape_timeout)
-            response.raise_for_status()
-            return response
-        except requests.RequestException as exc:
-            last_error = exc
-            logger.warning("AliExpress fetch attempt %s/%s failed: %s", attempt, settings.scrape_max_retries, exc)
-            time.sleep(min(2 ** attempt, 8))
-    logger.error("AliExpress fetch failed after %s attempts: %s", settings.scrape_max_retries, last_error)
+def _extract_balanced_json(text: str, start: int) -> str | None:
+    """Extract a balanced {...} JSON object starting at `start` — the blob is a JS object
+    literal embedded in HTML, not delimited by anything else JSON-parseable can key off."""
+    depth = 0
+    in_str = False
+    esc = False
+    str_char = ""
+    i = start
+    n = len(text)
+    while i < n:
+        c = text[i]
+        if in_str:
+            if esc:
+                esc = False
+            elif c == "\\":
+                esc = True
+            elif c == str_char:
+                in_str = False
+        else:
+            if c in "\"'":
+                in_str = True
+                str_char = c
+            elif c == "{":
+                depth += 1
+            elif c == "}":
+                depth -= 1
+                if depth == 0:
+                    return text[start:i + 1]
+        i += 1
     return None
 
 
-def _parse_price(text: str | None) -> float | None:
-    if not text:
+def _is_captcha_page(html: str) -> bool:
+    return '"action":"captcha"' in html or "_____tmd_____" in html
+
+
+def _find_item_list(node) -> list[dict] | None:
+    """Recursively search the parsed page-data tree for the product list — a list of dicts
+    each carrying `productId` (most, but not all, also carry `prices` — some card variants,
+    e.g. bundle/collection cards, omit it, so this only requires the id). Not a hardcoded
+    path: AliExpress's component keys (e.g. 'cards2023_3722') carry version suffixes that
+    change over time, so this looks for the shape of the data rather than a tree location."""
+    if isinstance(node, dict):
+        for value in node.values():
+            found = _find_item_list(value)
+            if found is not None:
+                return found
+    elif isinstance(node, list):
+        if node and all(isinstance(item, dict) and "productId" in item for item in node):
+            return node
+        for item in node:
+            found = _find_item_list(item)
+            if found is not None:
+                return found
+    return None
+
+
+def _extract_page_data(html: str) -> dict | None:
+    match = _INIT_DATA_RE.search(html)
+    if not match:
         return None
-    match = re.search(r"[\d,]+\.?\d*", text.replace(",", ""))
-    return float(match.group()) if match else None
+    json_text = _extract_balanced_json(html, match.end())
+    if not json_text:
+        return None
+    try:
+        return json.loads(json_text)
+    except json.JSONDecodeError as exc:
+        logger.warning("AliExpress page-data JSON failed to parse: %s", exc)
+        return None
 
 
-def search(query: str, max_results: int = 10) -> list[dict]:
-    """Search AliExpress for a query and return a list of normalized product dicts."""
-    session = _session()
-    response = _fetch(session, SEARCH_URL, params={"SearchText": query})
-    if response is None:
-        return []
+def _item_from_json(item: dict) -> dict | None:
+    product_id = item.get("productId") or item.get("redirectedId")
+    if not product_id:
+        return None
 
-    soup = BeautifulSoup(response.text, "html.parser")
+    title = ((item.get("title") or {}).get("displayTitle") or "").strip()
+    if not title:
+        return None
+
+    image = item.get("image") or {}
+    image_url = image.get("imgUrl")
+    if image_url and image_url.startswith("//"):
+        image_url = f"https:{image_url}"
+
+    prices = item.get("prices") or {}
+    price_block = prices.get("salePrice") or prices.get("originalPrice") or {}
+    price = price_block.get("minPrice")
+    currency = price_block.get("currencyCode") or "USD"
+
+    rating = (item.get("evaluation") or {}).get("starRating")
+
+    orders_count = None
+    trade_desc = (item.get("trade") or {}).get("tradeDesc")
+    if trade_desc:
+        orders_count = scrape_utils.parse_int(trade_desc)
+
+    seller_name = None
+    custom = ((item.get("trace") or {}).get("custom") or {}).get("p4pExtendParam")
+    if custom:
+        seller_match = re.search(r'"store_name"\s*:\s*"([^"]+)"', custom)
+        if seller_match:
+            seller_name = seller_match.group(1)
+
+    return {
+        "name": title,
+        "price": float(price) if price is not None else None,
+        "currency": currency,
+        "image_url": image_url,
+        "url": ITEM_URL_TEMPLATE.format(product_id=product_id),
+        "description": None,
+        "rating": float(rating) if rating is not None else None,
+        "reviews_count": None,  # not present on search-result cards, only on the item's own page
+        "orders_count": orders_count,
+        "shipping_price": None,
+        "seller_name": seller_name,
+        "in_stock": True,
+        "platform": "aliexpress",
+        "sku": str(product_id),
+        "raw_data": {"source": "aliexpress", "product_id": product_id},
+    }
+
+
+def _parse_html_fallback(html: str, max_results: int) -> list[dict]:
+    """CSS-selector fallback for when the embedded JSON blob isn't found. Far less reliable
+    than the JSON path (AliExpress's class names are build-hashed), kept only for resilience."""
+    soup = BeautifulSoup(html, "html.parser")
     results: list[dict] = []
+    seen_urls: set[str] = set()
 
     cards = soup.select("[class*='search-item-card'], [class*='product-card'], a[href*='/item/']")
-
-    seen_urls: set[str] = set()
     for card in cards:
         if len(results) >= max_results:
             break
-
         link = card if card.name == "a" else card.select_one("a[href*='/item/']")
         if not link or not link.get("href"):
             continue
-        url = link["href"]
-        if url.startswith("//"):
-            url = f"https:{url}"
+        url = scrape_utils.resolve_link("https://www.aliexpress.com", link["href"])
         if url in seen_urls:
             continue
         seen_urls.add(url)
@@ -99,29 +180,76 @@ def search(query: str, max_results: int = 10) -> list[dict]:
         image_el = card.select_one("img")
         rating_el = card.select_one("[class*='rating'], [class*='star']")
 
-        name = name_el.get_text(strip=True) if name_el else link.get("title", "").strip()
+        name = name_el.get_text(strip=True) if name_el else (link.get("title") or "").strip()
         if not name:
             continue
 
-        results.append(
-            {
-                "name": name,
-                "price": _parse_price(price_el.get_text(strip=True) if price_el else None),
-                "currency": "USD",
-                "image_url": image_el.get("src") or image_el.get("data-src") if image_el else None,
-                "url": url,
-                "description": None,
-                "rating": _parse_price(rating_el.get_text(strip=True)) if rating_el else None,
-                "reviews_count": None,
-                "orders_count": None,
-                "shipping_price": None,
-                "seller_name": None,
-                "in_stock": True,
-                "platform": "aliexpress",
-                "sku": None,
-                "raw_data": {"source": "aliexpress", "query": query},
-            }
+        price_text = price_el.get_text(strip=True) if price_el else None
+        results.append({
+            "name": name,
+            "price": scrape_utils.parse_number(price_text),
+            "currency": scrape_utils.detect_currency(price_text),
+            "image_url": (image_el.get("src") or image_el.get("data-src")) if image_el else None,
+            "url": url,
+            "description": None,
+            "rating": scrape_utils.parse_number(rating_el.get_text(strip=True)) if rating_el else None,
+            "reviews_count": None,
+            "orders_count": None,
+            "shipping_price": None,
+            "seller_name": None,
+            "in_stock": True,
+            "platform": "aliexpress",
+            "sku": None,
+            "raw_data": {"source": "aliexpress", "fallback": "css"},
+        })
+    return results
+
+
+def search(query: str, max_results: int = 10) -> list[dict]:
+    """
+    Search AliExpress for `query` and return up to `max_results` normalized product dicts,
+    fetching additional result pages as needed (up to settings.scrape_max_pages). Never
+    raises — returns whatever was collected (possibly []) on any failure or block.
+    """
+    session = scrape_utils.new_session()
+    results: list[dict] = []
+    seen_ids: set[str] = set()
+
+    for page_num in range(1, settings.scrape_max_pages + 1):
+        if len(results) >= max_results:
+            break
+
+        params = {"SearchText": query}
+        if page_num > 1:
+            params["page"] = page_num
+
+        response = scrape_utils.fetch_with_retry(
+            session, SEARCH_URL, params=params, limiter=_limiter,
+            max_retries=settings.scrape_max_retries, timeout=settings.scrape_timeout,
+            platform_label="AliExpress",
         )
+        if response is None:
+            break
+
+        if _is_captcha_page(response.text):
+            logger.warning("AliExpress served a CAPTCHA challenge — treating as blocked for this search")
+            break
+
+        page_data = _extract_page_data(response.text)
+        page_items: list[dict] = []
+        if page_data is not None:
+            for raw_item in _find_item_list(page_data) or []:
+                parsed = _item_from_json(raw_item)
+                if parsed and parsed["sku"] not in seen_ids:
+                    seen_ids.add(parsed["sku"])
+                    page_items.append(parsed)
+        else:
+            page_items = _parse_html_fallback(response.text, max_results - len(results))
+
+        if not page_items:
+            break  # no more results, or an unrecognized page structure — stop rather than loop needlessly
+
+        results.extend(page_items[: max_results - len(results)])
 
     logger.info("AliExpress search for %r returned %s results", query, len(results))
     return results

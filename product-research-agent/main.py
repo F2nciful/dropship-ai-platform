@@ -7,6 +7,7 @@ Designed to be consumed by the Nexus React dashboard.
 """
 import json
 import logging
+import time
 from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
@@ -16,6 +17,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 import dynamic_scraper
+import mock_data
 import ollama_integration
 import pricing_agent
 import scraper_aliexpress
@@ -203,7 +205,14 @@ def search_products(payload: SearchProductsRequest, db: Session = Depends(get_db
     table and must exist and be active. A failure scraping one platform never
     fails the whole request: it's reported per-platform in `errors`, and results
     from the other platforms are still returned.
+
+    If `settings.scrape_mock_fallback` is enabled and a platform comes back with
+    no real results (blocked, timed out, errored — or genuinely found nothing),
+    clearly-labeled placeholder listings fill in instead of leaving it empty.
+    `errors` is still populated in that case so callers always know real
+    scraping didn't succeed — mock data is never silently passed off as real.
     """
+    start_time = time.monotonic()
     results: list[ScrapedProduct] = []
     errors: dict[str, str] = {}
 
@@ -220,14 +229,40 @@ def search_products(payload: SearchProductsRequest, db: Session = Depends(get_db
         if not platform.is_active:
             errors[platform_name] = "Platform is inactive"
             continue
+        if platform_name == "ebay" and not scraper_ebay.is_configured():
+            errors[platform_name] = (
+                "eBay Browse API credentials not configured — set ebay_client_id/ebay_client_secret "
+                "(free at developer.ebay.com) to enable eBay search"
+            )
+            continue
+
+        raw_results: list[dict] = []
+        failure_reason: str | None = None
+        platform_start = time.monotonic()
         try:
             raw_results = _run_scraper(platform, payload.query, payload.max_results)
-            results.extend(ScrapedProduct(**item) for item in raw_results)
         except Exception as exc:  # noqa: BLE001 - a single platform failing must not break the search
             logger.exception("Scraper for %s failed", platform_name)
-            errors[platform_name] = f"{type(exc).__name__}: {exc}"
+            failure_reason = f"{type(exc).__name__}: {exc}"
+        logger.info(
+            "%s scrape for %r took %.1fs, %s result(s)",
+            platform_name, payload.query, time.monotonic() - platform_start, len(raw_results),
+        )
+
+        if not raw_results and settings.scrape_mock_fallback:
+            logger.info("No real results for %s — filling in labeled mock fallback data", platform_name)
+            raw_results = mock_data.generate(platform_name, payload.query, payload.max_results)
+            errors[platform_name] = (failure_reason or "No real results found") + " — showing labeled demo data"
+        elif failure_reason:
+            errors[platform_name] = failure_reason
+
+        results.extend(ScrapedProduct(**item) for item in raw_results)
 
     results = _filter_and_sort_results(results, payload)
+    logger.info(
+        "Combined search for %r across %s platform(s) took %.1fs, %s total result(s)",
+        payload.query, len(payload.platforms), time.monotonic() - start_time, len(results),
+    )
 
     return SearchProductsResponse(query=payload.query, total_results=len(results), results=results, errors=errors)
 
