@@ -22,6 +22,14 @@ class SearchProductsRequest(BaseModel):
         description="Which platform names to search (must be registered and active — see GET /api/platforms)",
     )
     max_results: int = Field(default=10, ge=1, le=50, description="Max results per platform")
+    sort_by: Optional[str] = Field(
+        default=None,
+        description="One of: price_asc, price_desc, rating_desc, orders_desc, newest",
+    )
+    min_price: Optional[float] = Field(default=None, ge=0, description="Exclude results cheaper than this")
+    max_price: Optional[float] = Field(default=None, ge=0, description="Exclude results pricier than this")
+    min_rating: Optional[float] = Field(default=None, ge=0, le=5, description="Exclude results rated below this")
+    in_stock_only: bool = Field(default=False, description="Exclude out-of-stock results")
 
     model_config = {
         "json_schema_extra": {
@@ -29,6 +37,11 @@ class SearchProductsRequest(BaseModel):
                 "query": "wireless earbuds",
                 "platforms": ["aliexpress", "amazon", "ebay"],
                 "max_results": 10,
+                "sort_by": "price_asc",
+                "min_price": 5,
+                "max_price": 50,
+                "min_rating": 4,
+                "in_stock_only": True,
             }
         }
     }
@@ -128,6 +141,22 @@ class ProductCreate(BaseModel):
             }
         }
     }
+
+
+class ProductUpdate(BaseModel):
+    """Partial update for a saved product — only provided fields are changed."""
+
+    name: Optional[str] = Field(default=None, min_length=1)
+    price: Optional[float] = None
+    currency: Optional[str] = None
+    image_url: Optional[str] = None
+    url: Optional[str] = None
+    description: Optional[str] = None
+    rating: Optional[float] = None
+    seller_name: Optional[str] = None
+    category: Optional[str] = None
+    in_stock: Optional[bool] = None
+    stock_quantity: Optional[int] = None
 
 
 class ProductResponse(BaseModel):
@@ -245,6 +274,85 @@ class PlatformTestResponse(BaseModel):
     message: str
     results_count: int = 0
     sample_results: list[ScrapedProduct] = Field(default_factory=list)
+
+
+# ─────────────────────────── AI (Ollama) ───────────────────────────
+
+class AnalyzeProductRequest(BaseModel):
+    name: str = Field(..., min_length=1)
+    price: Optional[float] = None
+    currency: str = "USD"
+    description: Optional[str] = None
+    rating: Optional[float] = None
+    reviews_count: Optional[int] = None
+    platform: Optional[str] = None
+
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "name": "Wireless Bluetooth Earbuds Pro",
+                "price": 19.99,
+                "currency": "USD",
+                "rating": 4.5,
+                "platform": "aliexpress",
+            }
+        }
+    }
+
+
+class ProductAnalysisResponse(BaseModel):
+    success: bool
+    description: Optional[str] = None
+    suggested_price: Optional[float] = None
+    profit_margin_percent: Optional[float] = None
+    target_audience: Optional[str] = None
+    keywords: list[str] = Field(default_factory=list)
+    message: Optional[str] = Field(default=None, description="Explanation when success is false")
+
+
+class SummarizeProductsRequest(BaseModel):
+    products: list[AnalyzeProductRequest] = Field(..., min_length=1)
+
+
+class SummarizeProductsResponse(BaseModel):
+    success: bool
+    summary: Optional[str] = None
+    message: Optional[str] = Field(default=None, description="Explanation when success is false")
+
+
+# ─────────────────────────── Price Tracking ───────────────────────────
+
+class PriceHistoryEntry(BaseModel):
+    id: int
+    price: float
+    currency: str
+    recorded_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class PriceHistoryResponse(BaseModel):
+    product_id: int
+    product_name: str
+    entries: list[PriceHistoryEntry]
+    first_price: Optional[float] = None
+    latest_price: Optional[float] = None
+    change_percent: Optional[float] = None
+
+
+class RefreshPriceResult(BaseModel):
+    product_id: int
+    name: str
+    old_price: Optional[float] = None
+    new_price: Optional[float] = None
+    changed: bool = False
+    status: str
+
+
+class RefreshPricesResponse(BaseModel):
+    updated_count: int
+    failed_count: int
+    results: list[RefreshPriceResult]
 
 
 # ─────────────────────────── Generic ───────────────────────────

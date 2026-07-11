@@ -20,6 +20,135 @@ const PREDEFINED_PLATFORMS = [
 
 const EMPTY_PLATFORM_FORM = { name: '', url: '', is_active: true, configText: '{}' };
 
+const DEFAULT_SETTINGS = {
+  displayName: '',
+  email: '',
+  theme: 'dark',
+  accentColor: '#D4AF37',
+  defaultPage: 'dashboard',
+  autoRefreshInterval: 15,
+  defaultPlatforms: ['aliexpress', 'amazon', 'ebay'],
+  defaultMaxResults: 10,
+};
+
+const ACCENT_PRESETS = [
+  { name: 'Gold', color: '#D4AF37' },
+  { name: 'Rose', color: '#C97064' },
+  { name: 'Emerald', color: '#2FA97C' },
+  { name: 'Sapphire', color: '#4A7FD6' },
+  { name: 'Violet', color: '#9B6BD6' },
+  { name: 'Copper', color: '#B87333' },
+];
+
+const DEFAULT_PAGE_OPTIONS = [
+  { value: 'dashboard', label: 'Dashboard' },
+  { value: 'agents', label: 'Agents' },
+  { value: 'research', label: 'Products Research' },
+  { value: 'myproducts', label: 'My Products' },
+  { value: 'analytics', label: 'Analytics' },
+];
+
+const AUTO_REFRESH_OPTIONS = [
+  { value: 5, label: '5 seconds' },
+  { value: 15, label: '15 seconds' },
+  { value: 30, label: '30 seconds' },
+  { value: 0, label: 'Off' },
+];
+
+const NOTIF_ICONS = { success: '✓', info: 'ℹ', warning: '⚠', error: '✕' };
+
+const EXPORT_COLUMNS = [
+  { key: 'name', label: 'Name' },
+  { key: 'price', label: 'Price' },
+  { key: 'currency', label: 'Currency' },
+  { key: 'platform', label: 'Platform' },
+  { key: 'rating', label: 'Rating' },
+  { key: 'in_stock', label: 'In Stock' },
+  { key: 'seller_name', label: 'Seller' },
+  { key: 'description', label: 'Description' },
+  { key: 'created_at', label: 'Date Added' },
+];
+
+const KEYBOARD_SHORTCUTS = [
+  { keys: 'Ctrl + K', description: 'Focus product search' },
+  { keys: 'Ctrl + D', description: 'Go to Dashboard' },
+  { keys: 'Ctrl + P', description: 'Go to My Products' },
+  { keys: 'Esc', description: 'Close any open modal' },
+  { keys: '?', description: 'Show this shortcuts panel' },
+];
+
+function loadSettings() {
+  try {
+    const saved = JSON.parse(localStorage.getItem('dsh-settings') || 'null');
+    return saved ? { ...DEFAULT_SETTINGS, ...saved } : { ...DEFAULT_SETTINGS };
+  } catch {
+    return { ...DEFAULT_SETTINGS };
+  }
+}
+
+function loadNotifications() {
+  try {
+    const saved = JSON.parse(localStorage.getItem('dsh-notifications') || '[]');
+    return Array.isArray(saved) ? saved : [];
+  } catch {
+    return [];
+  }
+}
+
+function formatRelativeTime(iso) {
+  const diffMs = Date.now() - new Date(iso).getTime();
+  const mins = Math.floor(diffMs / 60000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  if (days < 7) return `${days}d ago`;
+  return new Date(iso).toLocaleDateString();
+}
+
+// --- Accent color derivation: turns one hex into the small set of shades the
+// design system needs (glow, on-accent text, contrast-safe text), so the
+// color picker actually re-themes the app instead of just tinting one thing.
+function hexToRgb(hex) {
+  const clean = hex.replace('#', '');
+  const full = clean.length === 3 ? clean.split('').map(c => c + c).join('') : clean;
+  const num = parseInt(full, 16);
+  return [(num >> 16) & 255, (num >> 8) & 255, num & 255];
+}
+
+function rgbToHex([r, g, b]) {
+  return '#' + [r, g, b].map(v => Math.max(0, Math.min(255, Math.round(v))).toString(16).padStart(2, '0')).join('');
+}
+
+function relativeLuminance([r, g, b]) {
+  const [rs, gs, bs] = [r, g, b].map(c => {
+    const v = c / 255;
+    return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
+  });
+  return 0.2126 * rs + 0.7152 * gs + 0.0722 * bs;
+}
+
+function shadeColor(hex, percent) {
+  const [r, g, b] = hexToRgb(hex);
+  const t = percent < 0 ? 0 : 255;
+  const p = Math.abs(percent);
+  return rgbToHex([(t - r) * p + r, (t - g) * p + g, (t - b) * p + b]);
+}
+
+function deriveAccentVars(hex) {
+  const rgb = hexToRgb(hex);
+  const luminance = relativeLuminance(rgb);
+  const onAccent = luminance > 0.45 ? '#141414' : '#FFFFFF';
+  const textShade = luminance > 0.45 ? shadeColor(hex, -0.35) : hex;
+  return {
+    '--purple': hex,
+    '--purple-glow': `rgba(${rgb[0]}, ${rgb[1]}, ${rgb[2]}, 0.35)`,
+    '--purple-text': textShade,
+    '--on-gold': onAccent,
+  };
+}
+
 const T = {
   en: {
     dashboard: 'Dashboard', agents: 'Agents', tasks: 'Tasks', logs: 'Logs',
@@ -49,7 +178,7 @@ const T = {
     searchPromptSub: 'Search AliExpress, Amazon, and eBay to find products for your store',
     searchFailedTitle: 'Search Failed',
     searchFailedSub: 'Could not reach the product research service. Make sure the backend is running on port 8000.',
-    retry: 'Retry', addProductTitle: 'Add to Shop', confirmAdd: 'Add to Database',
+    retry: 'Retry',
     productAdded: 'Product added to database', addFailed: 'Failed to add product',
     selectPlatform: 'Select at least one platform', noProductsFound: 'No products found',
     reachFailed: 'Could not reach product research service',
@@ -182,15 +311,240 @@ const EmptyState = ({ icon, title, subtitle, action }) => (
   </div>
 );
 
+const StarRating = ({ rating, size }) => {
+  const rounded = Math.round(rating || 0);
+  return (
+    <span className="dsh-star-rating" style={size ? { fontSize: size } : undefined}>
+      {[1, 2, 3, 4, 5].map(i => (
+        <span key={i} className={`dsh-star ${i <= rounded ? 'dsh-star--filled' : ''}`}>★</span>
+      ))}
+      {rating != null && <span className="dsh-star-rating-value">{Number(rating).toFixed(1)}</span>}
+    </span>
+  );
+};
+
+const ProductDetailModal = ({
+  product, onClose, onAddToShop, adding, closing,
+  onAnalyze, analyzing, analysis, analysisError, onApplyDescription,
+}) => {
+  if (!product) return null;
+  const currency = product.currency || 'USD';
+
+  return (
+    <div className={`dsh-modal-back ${closing ? 'dsh-modal-back--closing' : ''}`} onClick={onClose}>
+      <div className={`dsh-modal dsh-product-detail-modal ${closing ? 'dsh-modal--closing' : ''}`} onClick={e => e.stopPropagation()}>
+        <div className="dsh-product-detail-image">
+          {product.image_url ? (
+            <img src={product.image_url} alt={product.name} onError={e => { e.target.style.display = 'none'; }} />
+          ) : (
+            <span>📦</span>
+          )}
+        </div>
+
+        <div className="dsh-product-detail-badges">
+          <span className="dsh-badge dsh-badge--off">{product.platform}</span>
+          <span className={`dsh-badge ${product.in_stock === false ? 'dsh-badge--err' : 'dsh-badge--on'}`}>
+            <span className="dsh-dot" />{product.in_stock === false ? 'Out of Stock' : 'In Stock'}
+          </span>
+        </div>
+
+        <h3 className="dsh-product-detail-name">{product.name}</h3>
+        {product.description && <p className="dsh-product-detail-desc">{product.description}</p>}
+        {product.rating != null && <StarRating rating={product.rating} />}
+
+        <div className="dsh-product-detail-grid">
+          <div className="dsh-product-detail-stat">
+            <span className="dsh-product-detail-stat-label">Price</span>
+            <span className="dsh-product-detail-stat-value">
+              {product.price != null ? `${currency} ${Number(product.price).toFixed(2)}` : '—'}
+            </span>
+          </div>
+          <div className="dsh-product-detail-stat">
+            <span className="dsh-product-detail-stat-label">Reviews</span>
+            <span className="dsh-product-detail-stat-value">{product.reviews_count ?? '—'}</span>
+          </div>
+          <div className="dsh-product-detail-stat">
+            <span className="dsh-product-detail-stat-label">Orders</span>
+            <span className="dsh-product-detail-stat-value">{product.orders_count ?? '—'}</span>
+          </div>
+          <div className="dsh-product-detail-stat">
+            <span className="dsh-product-detail-stat-label">Shipping</span>
+            <span className="dsh-product-detail-stat-value">
+              {product.shipping_price != null ? `${currency} ${Number(product.shipping_price).toFixed(2)}` : '—'}
+            </span>
+          </div>
+          <div className="dsh-product-detail-stat">
+            <span className="dsh-product-detail-stat-label">Seller</span>
+            <span className="dsh-product-detail-stat-value">{product.seller_name || '—'}</span>
+          </div>
+          {product.url && (
+            <div className="dsh-product-detail-stat">
+              <span className="dsh-product-detail-stat-label">Source</span>
+              <a className="dsh-product-detail-link" href={product.url} target="_blank" rel="noreferrer">View original ↗</a>
+            </div>
+          )}
+        </div>
+
+        {onAnalyze && (
+          <div className="dsh-ai-section">
+            {!analysis && !analyzing && (
+              <button className="dsh-btn dsh-btn--ghost dsh-ai-btn" onClick={onAnalyze}>✨ AI Analysis</button>
+            )}
+
+            {analyzing && (
+              <div className="dsh-ai-loading"><span className="dsh-spinner" /> Analyzing with AI...</div>
+            )}
+
+            {analysisError && !analyzing && !analysis && (
+              <div className="dsh-ai-error">⚠️ {analysisError}</div>
+            )}
+
+            {analysis && !analyzing && (
+              <div className="dsh-ai-result">
+                <div className="dsh-ai-result-header">✨ AI Analysis</div>
+
+                {analysis.description && (
+                  <div className="dsh-ai-block">
+                    <span className="dsh-ai-label">Suggested Description</span>
+                    <p className="dsh-ai-desc">{analysis.description}</p>
+                    {onApplyDescription && (
+                      <button className="dsh-btn dsh-btn--ghost dsh-ai-apply-btn" onClick={onApplyDescription}>
+                        ✓ Apply Description
+                      </button>
+                    )}
+                  </div>
+                )}
+
+                <div className="dsh-ai-grid">
+                  {analysis.suggested_price != null && (
+                    <div className="dsh-ai-stat">
+                      <span className="dsh-ai-label">Suggested Price</span>
+                      <span className="dsh-ai-value">{currency} {Number(analysis.suggested_price).toFixed(2)}</span>
+                    </div>
+                  )}
+                  {analysis.profit_margin_percent != null && (
+                    <div className="dsh-ai-stat">
+                      <span className="dsh-ai-label">Profit Margin</span>
+                      <span className="dsh-ai-value">{Number(analysis.profit_margin_percent).toFixed(1)}%</span>
+                    </div>
+                  )}
+                  {analysis.target_audience && (
+                    <div className="dsh-ai-stat">
+                      <span className="dsh-ai-label">Target Audience</span>
+                      <span className="dsh-ai-value">{analysis.target_audience}</span>
+                    </div>
+                  )}
+                </div>
+
+                {analysis.keywords?.length > 0 && (
+                  <div className="dsh-ai-keywords">
+                    {analysis.keywords.map(k => <span key={k} className="dsh-badge dsh-badge--off">{k}</span>)}
+                  </div>
+                )}
+
+                <button className="dsh-btn dsh-btn--ghost dsh-ai-btn" onClick={onAnalyze}>🔄 Re-analyze</button>
+              </div>
+            )}
+          </div>
+        )}
+
+        <div className="dsh-settings-actions">
+          {onAddToShop && (
+            <button className="dsh-btn dsh-btn--primary" onClick={onAddToShop} disabled={adding || product._added}>
+              {adding ? (<><span className="dsh-spinner" /> Adding...</>) : product._added ? '✓ Added' : '✓ Add to Shop'}
+            </button>
+          )}
+          <button className="dsh-btn dsh-btn--ghost" onClick={onClose} disabled={adding}>Close</button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const PriceHistoryModal = ({ modal, loading, onClose }) => {
+  if (!modal) return null;
+  const { product, data, error } = modal;
+  const entries = data?.entries || [];
+  const currency = entries[0]?.currency || 'USD';
+  const chartData = entries.map(e => ({
+    date: new Date(e.recorded_at).toLocaleDateString(),
+    price: e.price,
+  }));
+  const changePercent = data?.change_percent;
+  const priceDropped = changePercent != null && changePercent < 0;
+  const priceIncreased = changePercent != null && changePercent > 0;
+
+  return (
+    <div className="dsh-modal-back" onClick={onClose}>
+      <div className="dsh-modal dsh-price-history-modal" onClick={e => e.stopPropagation()}>
+        <h3>📈 Price History</h3>
+        <p className="dsh-price-history-product" title={product.name}>{product.name}</p>
+
+        {loading ? (
+          <div className="dsh-ai-loading"><span className="dsh-spinner" /> Loading price history...</div>
+        ) : error ? (
+          <div className="dsh-ai-error">⚠️ {error}</div>
+        ) : entries.length === 0 ? (
+          <div className="dsh-empty-state" style={{ border: 'none', background: 'transparent', padding: '20px 0' }}>
+            <div className="dsh-empty-icon">📈</div>
+            <h3 className="dsh-empty-title">No Price Data</h3>
+            <p className="dsh-empty-subtitle">No price history recorded for this product yet</p>
+          </div>
+        ) : (
+          <>
+            {changePercent != null && (
+              <div className={`dsh-price-change ${priceDropped ? 'dsh-price-change--down' : priceIncreased ? 'dsh-price-change--up' : ''}`}>
+                <span className="dsh-price-change-arrow">{priceDropped ? '↓' : priceIncreased ? '↑' : '→'}</span>
+                <span>
+                  {Math.abs(changePercent).toFixed(1)}% {priceDropped ? 'decrease' : priceIncreased ? 'increase' : 'change'} since first recorded
+                </span>
+              </div>
+            )}
+
+            <ResponsiveContainer width="100%" height={220}>
+              <LineChart data={chartData}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="date" />
+                <YAxis domain={['auto', 'auto']} />
+                <Tooltip />
+                <Line type="monotone" dataKey="price" stroke="#D4AF37" strokeWidth={2} dot={{ r: 3 }} />
+              </LineChart>
+            </ResponsiveContainer>
+
+            <div className="dsh-price-history-summary">
+              <div className="dsh-ai-stat">
+                <span className="dsh-ai-label">First Price</span>
+                <span className="dsh-ai-value">{currency} {Number(data.first_price).toFixed(2)}</span>
+              </div>
+              <div className="dsh-ai-stat">
+                <span className="dsh-ai-label">Latest Price</span>
+                <span className="dsh-ai-value">{currency} {Number(data.latest_price).toFixed(2)}</span>
+              </div>
+            </div>
+          </>
+        )}
+
+        <div className="dsh-settings-actions">
+          <button className="dsh-btn dsh-btn--ghost" onClick={onClose}>Close</button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 function Dashboard({ user, onLogout }) {
+  const [appSettings, setAppSettings] = useState(loadSettings);
+  const [settingsDraft, setSettingsDraft] = useState(appSettings);
   const [dark, setDark] = useState(() => localStorage.getItem('dsh-theme') !== 'light');
   const [lang, setLang] = useState('en');
-  const [page, setPage] = useState('dashboard');
+  const [page, setPage] = useState(() => loadSettings().defaultPage || 'dashboard');
   const [agents, setAgents] = useState([]);
   const [tasks, setTasks] = useState([]);
   const [logs, setLogs] = useState([]);
   const [backendUp, setBackendUp] = useState(true);
   const [loading, setLoading] = useState(true);
+  const [refreshingAll, setRefreshingAll] = useState(false);
+  const [logoutConfirmOpen, setLogoutConfirmOpen] = useState(false);
   const [agentSearch, setAgentSearch] = useState('');
   const [taskSearch, setTaskSearch] = useState('');
   const [autoRefresh, setAutoRefresh] = useState(true);
@@ -198,15 +552,56 @@ function Dashboard({ user, onLogout }) {
   const [selectedAgent, setSelectedAgent] = useState(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const toastId = useRef(0);
+  const researchInputRef = useRef(null);
+
+  const [notifications, setNotifications] = useState(loadNotifications);
+  const [notifCenterOpen, setNotifCenterOpen] = useState(false);
+  const [shortcutsModalOpen, setShortcutsModalOpen] = useState(false);
+  const [exportModalOpen, setExportModalOpen] = useState(false);
+  const [exportForm, setExportForm] = useState({
+    format: 'csv',
+    columns: EXPORT_COLUMNS.map(c => c.key),
+    dateFrom: '',
+    dateTo: '',
+  });
+  const [reportModal, setReportModal] = useState(null);
+  const [reportLoading, setReportLoading] = useState(false);
 
   const [researchQuery, setResearchQuery] = useState('');
-  const [researchPlatforms, setResearchPlatforms] = useState({ aliexpress: true, amazon: true, ebay: true });
+  const [researchPlatforms, setResearchPlatforms] = useState(() => {
+    const defaults = loadSettings().defaultPlatforms || ['aliexpress', 'amazon', 'ebay'];
+    return RESEARCH_PLATFORMS.reduce((acc, p) => ({ ...acc, [p.id]: defaults.includes(p.id) }), {});
+  });
   const [researchLoading, setResearchLoading] = useState(false);
   const [researchSearched, setResearchSearched] = useState(false);
   const [researchResults, setResearchResults] = useState([]);
   const [researchError, setResearchError] = useState(null);
-  const [selectedResearchProduct, setSelectedResearchProduct] = useState(null);
+  const [productModal, setProductModal] = useState(null);
+  const [productModalClosing, setProductModalClosing] = useState(false);
   const [addingProduct, setAddingProduct] = useState(false);
+  const [aiAnalyzing, setAiAnalyzing] = useState(false);
+  const [aiAnalysis, setAiAnalysis] = useState(null);
+  const [aiAnalysisError, setAiAnalysisError] = useState(null);
+
+  const [priceHistoryModal, setPriceHistoryModal] = useState(null);
+  const [priceHistoryLoading, setPriceHistoryLoading] = useState(false);
+  const [refreshingPrices, setRefreshingPrices] = useState(false);
+
+  const [priceMin, setPriceMin] = useState('');
+  const [priceMax, setPriceMax] = useState('');
+  const [minRating, setMinRating] = useState(0);
+  const [sortBy, setSortBy] = useState('');
+  const [inStockOnly, setInStockOnly] = useState(false);
+  const [filtersOpen, setFiltersOpen] = useState(false);
+
+  const [myProducts, setMyProducts] = useState([]);
+  const [myProductsTotal, setMyProductsTotal] = useState(0);
+  const [myProductsLoading, setMyProductsLoading] = useState(true);
+  const [myProductsSearch, setMyProductsSearch] = useState('');
+  const [myProductsPageNum, setMyProductsPageNum] = useState(1);
+  const [selectedProductIds, setSelectedProductIds] = useState({});
+  const [bulkDeleting, setBulkDeleting] = useState(false);
+  const [deletingProductId, setDeletingProductId] = useState(null);
 
   const [platforms, setPlatforms] = useState([]);
   const [platformsLoading, setPlatformsLoading] = useState(true);
@@ -267,17 +662,73 @@ function Dashboard({ user, onLogout }) {
     setTimeout(() => setToasts(prev => prev.filter(x => x.id !== id)), 3500);
   }, []);
 
+  const addNotification = useCallback((type, message) => {
+    setNotifications(prev => {
+      const next = [{ id: `${Date.now()}-${Math.random().toString(36).slice(2)}`, type, message, time: new Date().toISOString(), read: false }, ...prev].slice(0, 50);
+      localStorage.setItem('dsh-notifications', JSON.stringify(next));
+      return next;
+    });
+  }, []);
+
+  const markNotificationRead = (id) => {
+    setNotifications(prev => {
+      const next = prev.map(n => (n.id === id ? { ...n, read: true } : n));
+      localStorage.setItem('dsh-notifications', JSON.stringify(next));
+      return next;
+    });
+  };
+
+  const markAllNotificationsRead = () => {
+    setNotifications(prev => {
+      const next = prev.map(n => ({ ...n, read: true }));
+      localStorage.setItem('dsh-notifications', JSON.stringify(next));
+      return next;
+    });
+  };
+
+  const clearAllNotifications = () => {
+    setNotifications([]);
+    localStorage.setItem('dsh-notifications', JSON.stringify([]));
+  };
+
+  const unreadNotifCount = notifications.filter(n => !n.read).length;
+
+  useEffect(() => { if (page === 'usersettings') setSettingsDraft(appSettings); }, [page, appSettings]);
+
+  const saveSettings = () => {
+    setAppSettings(settingsDraft);
+    localStorage.setItem('dsh-settings', JSON.stringify(settingsDraft));
+    if (settingsDraft.theme !== (dark ? 'dark' : 'light')) {
+      setDark(settingsDraft.theme === 'dark');
+    }
+    if (settingsDraft.autoRefreshInterval === 0) {
+      setAutoRefresh(false);
+    }
+    showToast('Settings saved', 'success');
+  };
+
+  const resetSettingsDraft = () => {
+    setSettingsDraft({ ...DEFAULT_SETTINGS });
+    showToast('Defaults loaded — click Save to apply', 'info');
+  };
+
   const fetchAll = useCallback(async (silent = true) => {
+    if (!silent) setRefreshingAll(true);
     try {
-      const [aRes, tRes, lRes] = await Promise.allSettled([
+      const [aRes, tRes, lRes, pRes] = await Promise.allSettled([
         fetch(`${API_URL}/agents`).then(r => r.json()),
         fetch(`${API_URL}/tasks`).then(r => r.json()),
         fetch(`${API_URL}/logs`).then(r => r.json()),
+        fetch(`${RESEARCH_API_URL}/products?limit=200`).then(r => r.json()),
       ]);
 
       if (aRes.status === 'fulfilled') setAgents(normalizeList(aRes.value, 'agents'));
       if (tRes.status === 'fulfilled') setTasks(normalizeList(tRes.value, 'tasks'));
       if (lRes.status === 'fulfilled') setLogs(normalizeList(lRes.value, 'logs'));
+      if (pRes.status === 'fulfilled') {
+        setMyProducts(pRes.value.products || []);
+        setMyProductsTotal(pRes.value.total || 0);
+      }
 
       const anyOk = [aRes, tRes, lRes].some(r => r.status === 'fulfilled');
       setBackendUp(anyOk);
@@ -286,15 +737,16 @@ function Dashboard({ user, onLogout }) {
       setBackendUp(false);
     } finally {
       setLoading(false);
+      if (!silent) setRefreshingAll(false);
     }
   }, [showToast, t]);
 
   useEffect(() => { fetchAll(); }, [fetchAll]);
   useEffect(() => {
-    if (!autoRefresh) return;
-    const iv = setInterval(() => fetchAll(true), 15000);
+    if (!autoRefresh || !appSettings.autoRefreshInterval) return;
+    const iv = setInterval(() => fetchAll(true), appSettings.autoRefreshInterval * 1000);
     return () => clearInterval(iv);
-  }, [autoRefresh, fetchAll]);
+  }, [autoRefresh, appSettings.autoRefreshInterval, fetchAll]);
 
   useEffect(() => { localStorage.setItem('dsh-theme', dark ? 'dark' : 'light'); }, [dark]);
   useEffect(() => {
@@ -356,6 +808,61 @@ function Dashboard({ user, onLogout }) {
     return title.includes(taskSearch.toLowerCase());
   });
 
+  const activeResearchFilterCount = [
+    priceMin !== '' || priceMax !== '',
+    minRating > 0,
+    inStockOnly,
+    sortBy !== '',
+  ].filter(Boolean).length;
+  const hasActiveResearchFilters = activeResearchFilterCount > 0;
+
+  const clearResearchFilters = () => {
+    setPriceMin(''); setPriceMax(''); setMinRating(0); setSortBy(''); setInStockOnly(false);
+  };
+
+  const filteredResearchResults = researchResults.filter(p => {
+    if (priceMin !== '' && (p.price == null || p.price < Number(priceMin))) return false;
+    if (priceMax !== '' && (p.price == null || p.price > Number(priceMax))) return false;
+    if (minRating > 0 && (p.rating == null || p.rating < minRating)) return false;
+    if (inStockOnly && p.in_stock === false) return false;
+    return true;
+  });
+
+  const sortedResearchResults = [...filteredResearchResults].sort((a, b) => {
+    switch (sortBy) {
+      case 'price_asc': return (a.price ?? Infinity) - (b.price ?? Infinity);
+      case 'price_desc': return (b.price ?? -Infinity) - (a.price ?? -Infinity);
+      case 'rating_desc': return (b.rating ?? -Infinity) - (a.rating ?? -Infinity);
+      case 'orders_desc': return (b.orders_count ?? -Infinity) - (a.orders_count ?? -Infinity);
+      case 'newest': default: return 0;
+    }
+  });
+
+  const MY_PRODUCTS_PAGE_SIZE = 20;
+  const filteredMyProducts = myProducts.filter(p => {
+    if (!myProductsSearch.trim()) return true;
+    const q = myProductsSearch.toLowerCase();
+    return (p.name || '').toLowerCase().includes(q) || (p.platform || '').toLowerCase().includes(q);
+  });
+  const myProductsTotalPages = Math.max(1, Math.ceil(filteredMyProducts.length / MY_PRODUCTS_PAGE_SIZE));
+  const myProductsPageClamped = Math.min(myProductsPageNum, myProductsTotalPages);
+  const paginatedMyProducts = filteredMyProducts.slice(
+    (myProductsPageClamped - 1) * MY_PRODUCTS_PAGE_SIZE,
+    myProductsPageClamped * MY_PRODUCTS_PAGE_SIZE
+  );
+  const selectedProductCount = Object.keys(selectedProductIds).length;
+  const allOnPageSelected = paginatedMyProducts.length > 0 && paginatedMyProducts.every(p => selectedProductIds[p.id]);
+
+  const toggleSelectAllOnPage = () => {
+    setSelectedProductIds(prev => {
+      const next = { ...prev };
+      paginatedMyProducts.forEach(p => {
+        if (allOnPageSelected) delete next[p.id]; else next[p.id] = true;
+      });
+      return next;
+    });
+  };
+
   const exportCSV = () => {
     const rows = [['Name', 'Status', 'Type'], ...agents.map(a => [a.name || '', a.status || '', a.type || ''])];
     const csv = rows.map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(',')).join('\n');
@@ -384,25 +891,56 @@ function Dashboard({ user, onLogout }) {
       const res = await fetch(`${RESEARCH_API_URL}/search-products`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query: researchQuery.trim(), platforms, max_results: 12 }),
+        body: JSON.stringify({
+          query: researchQuery.trim(),
+          platforms,
+          max_results: appSettings.defaultMaxResults,
+          sort_by: sortBy || null,
+          min_price: priceMin !== '' ? Number(priceMin) : null,
+          max_price: priceMax !== '' ? Number(priceMax) : null,
+          min_rating: minRating > 0 ? minRating : null,
+          in_stock_only: inStockOnly,
+        }),
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       const results = data.results || [];
       setResearchResults(results);
       if (results.length === 0) showToast(t.noProductsFound, 'info');
+      const failedPlatforms = Object.keys(data.errors || {});
+      if (failedPlatforms.length > 0) {
+        addNotification('error', `Search failed on ${failedPlatforms.join(', ')}: ${data.errors[failedPlatforms[0]]}`);
+      }
     } catch {
       setResearchError(t.reachFailed);
       setResearchResults([]);
       showToast(t.reachFailed, 'error');
+      addNotification('error', `Product search failed for "${researchQuery.trim()}"`);
     } finally {
       setResearchLoading(false);
     }
-  }, [researchQuery, researchPlatforms, showToast, t]);
+  }, [researchQuery, researchPlatforms, showToast, t, appSettings.defaultMaxResults, addNotification, sortBy, priceMin, priceMax, minRating, inStockOnly]);
+
+  const openProductModal = (product, mode) => {
+    setAiAnalysis(null);
+    setAiAnalysisError(null);
+    setProductModal({ product, mode });
+  };
+
+  const closeProductModal = useCallback(() => {
+    if (addingProduct) return;
+    setProductModalClosing(true);
+    setTimeout(() => {
+      setProductModal(null);
+      setProductModalClosing(false);
+      setAiAnalysis(null);
+      setAiAnalysisError(null);
+    }, 200);
+  }, [addingProduct]);
 
   const confirmAddToShop = useCallback(async () => {
-    if (!selectedResearchProduct) return;
-    const p = selectedResearchProduct;
+    if (!productModal?.product) return;
+    const p = productModal.product;
     setAddingProduct(true);
     try {
       const res = await fetch(`${RESEARCH_API_URL}/add-to-database`, {
@@ -427,14 +965,69 @@ function Dashboard({ user, onLogout }) {
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       showToast(t.productAdded, 'success');
+      addNotification('success', `Added "${p.name}" to your products`);
+      if (p.in_stock === false) {
+        addNotification('warning', `"${p.name}" is currently out of stock`);
+      }
       setResearchResults(prev => prev.map(item => (item === p ? { ...item, _added: true } : item)));
-      setSelectedResearchProduct(null);
+      closeProductModal();
     } catch {
       showToast(t.addFailed, 'error');
     } finally {
       setAddingProduct(false);
     }
-  }, [selectedResearchProduct, showToast, t]);
+  }, [productModal, showToast, t, closeProductModal, addNotification]);
+
+  const analyzeProductWithAi = useCallback(async () => {
+    if (!productModal?.product) return;
+    const p = productModal.product;
+    setAiAnalyzing(true);
+    setAiAnalysisError(null);
+    try {
+      const res = await fetch(`${RESEARCH_API_URL}/analyze-product`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: p.name,
+          price: p.price,
+          currency: p.currency || 'USD',
+          description: p.description,
+          rating: p.rating,
+          reviews_count: p.reviews_count,
+          platform: p.platform,
+        }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      if (!data.success) {
+        setAiAnalysisError(data.message || 'AI analysis unavailable');
+        showToast(data.message || 'AI analysis unavailable', 'warning');
+      } else {
+        setAiAnalysis(data);
+      }
+    } catch {
+      setAiAnalysisError('Could not reach the AI analysis service');
+      showToast('Could not reach the AI analysis service', 'error');
+    } finally {
+      setAiAnalyzing(false);
+    }
+  }, [productModal, showToast]);
+
+  const openPriceHistory = useCallback(async (product) => {
+    setPriceHistoryModal({ product, data: null, error: null });
+    setPriceHistoryLoading(true);
+    try {
+      const res = await fetch(`${RESEARCH_API_URL}/product/${product.id}/price-history`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      setPriceHistoryModal({ product, data, error: null });
+    } catch {
+      setPriceHistoryModal({ product, data: null, error: 'Could not load price history' });
+      showToast('Could not load price history', 'error');
+    } finally {
+      setPriceHistoryLoading(false);
+    }
+  }, [showToast]);
 
   const fetchPlatforms = useCallback(async () => {
     setPlatformsLoading(true);
@@ -555,12 +1148,194 @@ function Dashboard({ user, onLogout }) {
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       showToast(data.message, data.success ? 'success' : 'warning');
+      if (!data.success) addNotification('error', `Scraping test failed for "${p.name}": ${data.message}`);
     } catch {
       showToast(t.platformActionFailed, 'error');
+      addNotification('error', `Scraping test failed for "${p.name}"`);
     } finally {
       setTestingPlatformId(null);
     }
-  }, [showToast, t]);
+  }, [showToast, t, addNotification]);
+
+  const fetchMyProducts = useCallback(async () => {
+    setMyProductsLoading(true);
+    try {
+      const res = await fetch(`${RESEARCH_API_URL}/products?limit=200`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      setMyProducts(data.products || []);
+      setMyProductsTotal(data.total || 0);
+    } catch {
+      setMyProducts([]);
+      showToast('Could not load saved products', 'error');
+    } finally {
+      setMyProductsLoading(false);
+    }
+  }, [showToast]);
+
+  useEffect(() => { if (page === 'myproducts') fetchMyProducts(); }, [page, fetchMyProducts]);
+
+  const applyAiDescription = useCallback(async () => {
+    if (!productModal?.product || !aiAnalysis?.description) return;
+    const description = aiAnalysis.description;
+
+    if (productModal.mode === 'saved') {
+      try {
+        const res = await fetch(`${RESEARCH_API_URL}/product/${productModal.product.id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ description }),
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        showToast('Description updated', 'success');
+        setProductModal(prev => (prev ? { ...prev, product: { ...prev.product, description } } : prev));
+        fetchMyProducts();
+      } catch {
+        showToast('Failed to update product', 'error');
+      }
+    } else {
+      setProductModal(prev => (prev ? { ...prev, product: { ...prev.product, description } } : prev));
+      showToast('Description applied — click Add to Shop to save it', 'success');
+    }
+  }, [productModal, aiAnalysis, showToast, fetchMyProducts]);
+
+  const refreshAllPrices = useCallback(async () => {
+    setRefreshingPrices(true);
+    try {
+      const res = await fetch(`${RESEARCH_API_URL}/products/refresh-prices`, { method: 'POST' });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      showToast(`Refreshed ${data.updated_count} product(s)${data.failed_count ? `, ${data.failed_count} unchanged/failed` : ''}`, 'success');
+      const changed = (data.results || []).filter(r => r.changed);
+      if (changed.length === 1) {
+        const r = changed[0];
+        addNotification('info', `Price changed for "${r.name}": ${r.old_price ?? '—'} → ${r.new_price}`);
+      } else if (changed.length > 1) {
+        addNotification('info', `Prices changed for ${changed.length} product(s)`);
+      }
+      fetchMyProducts();
+    } catch {
+      showToast('Failed to refresh prices', 'error');
+      addNotification('error', 'Price refresh failed');
+    } finally {
+      setRefreshingPrices(false);
+    }
+  }, [showToast, fetchMyProducts, addNotification]);
+
+  const toggleProductSelected = (id) => {
+    setSelectedProductIds(prev => {
+      const next = { ...prev };
+      if (next[id]) delete next[id]; else next[id] = true;
+      return next;
+    });
+  };
+
+  const deleteSavedProduct = useCallback(async (id) => {
+    if (!window.confirm('Delete this product? This cannot be undone.')) return;
+    setDeletingProductId(id);
+    try {
+      const res = await fetch(`${RESEARCH_API_URL}/product/${id}`, { method: 'DELETE' });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      showToast('Product deleted', 'success');
+      setSelectedProductIds(prev => { const next = { ...prev }; delete next[id]; return next; });
+      fetchMyProducts();
+    } catch {
+      showToast('Failed to delete product', 'error');
+    } finally {
+      setDeletingProductId(null);
+    }
+  }, [showToast, fetchMyProducts]);
+
+  const bulkDeleteSelected = useCallback(async () => {
+    const ids = Object.keys(selectedProductIds);
+    if (ids.length === 0) return;
+    if (!window.confirm(`Delete ${ids.length} selected product(s)? This cannot be undone.`)) return;
+    setBulkDeleting(true);
+    try {
+      const results = await Promise.allSettled(
+        ids.map(id => fetch(`${RESEARCH_API_URL}/product/${id}`, { method: 'DELETE' }))
+      );
+      const failedCount = results.filter(r => r.status === 'rejected' || !r.value?.ok).length;
+      if (failedCount > 0) {
+        showToast(`Deleted ${ids.length - failedCount} of ${ids.length} — ${failedCount} failed`, 'warning');
+      } else {
+        showToast(`Deleted ${ids.length} product(s)`, 'success');
+      }
+      setSelectedProductIds({});
+      fetchMyProducts();
+    } finally {
+      setBulkDeleting(false);
+    }
+  }, [selectedProductIds, showToast, fetchMyProducts]);
+
+  const generateReport = useCallback(async () => {
+    setReportLoading(true);
+    try {
+      const res = await fetch(`${RESEARCH_API_URL}/products?limit=200`);
+      const data = res.ok ? await res.json() : { products: [], total: 0 };
+      const products = data.products || [];
+      const withPrice = products.filter(p => p.price != null);
+      const avgPrice = withPrice.length > 0 ? withPrice.reduce((sum, p) => sum + p.price, 0) / withPrice.length : 0;
+      const platformCounts = {};
+      products.forEach(p => { platformCounts[p.platform] = (platformCounts[p.platform] || 0) + 1; });
+
+      setReportModal({
+        generatedAt: new Date().toISOString(),
+        totalProducts: products.length,
+        avgPrice,
+        platformCounts,
+        recentActivity: notifications.slice(0, 8),
+      });
+    } catch {
+      showToast('Failed to generate report', 'error');
+    } finally {
+      setReportLoading(false);
+    }
+  }, [notifications, showToast]);
+
+  const downloadBlob = (content, mimeType, filename) => {
+    const blob = new Blob([content], { type: mimeType });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const runProductExport = () => {
+    let rows = filteredMyProducts;
+    if (exportForm.dateFrom) {
+      const from = new Date(exportForm.dateFrom).getTime();
+      rows = rows.filter(p => p.created_at && new Date(p.created_at).getTime() >= from);
+    }
+    if (exportForm.dateTo) {
+      const to = new Date(exportForm.dateTo).getTime() + 86400000;
+      rows = rows.filter(p => p.created_at && new Date(p.created_at).getTime() <= to);
+    }
+    if (rows.length === 0) {
+      showToast('No products match the selected export options', 'warning');
+      return;
+    }
+
+    const cols = EXPORT_COLUMNS.filter(c => exportForm.columns.includes(c.key));
+    if (cols.length === 0) {
+      showToast('Select at least one column to export', 'warning');
+      return;
+    }
+
+    if (exportForm.format === 'json') {
+      const data = rows.map(p => Object.fromEntries(cols.map(c => [c.key, p[c.key] ?? null])));
+      downloadBlob(JSON.stringify(data, null, 2), 'application/json', 'my-products.json');
+    } else {
+      const csvRows = [cols.map(c => c.label), ...rows.map(p => cols.map(c => (c.key === 'in_stock' ? (p.in_stock ? 'Yes' : 'No') : p[c.key] ?? '')))];
+      const csv = csvRows.map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(',')).join('\n');
+      downloadBlob('﻿' + csv, 'text/csv', 'my-products.csv');
+    }
+
+    showToast(`Exported ${rows.length} product(s)`, 'success');
+    setExportModalOpen(false);
+  };
 
   const togglePause = (agentId) => {
     setPausedAgents(prev => ({
@@ -628,11 +1403,63 @@ const deselectAllAgents = useCallback(() => {
     { id: 'logs', icon: '≣', label: t.logs },
     { id: 'analytics', icon: '📊', label: 'Analytics' },
     { id: 'research', icon: '📦', label: t.productsResearch },
+    { id: 'myproducts', icon: '🛍️', label: 'My Products' },
     { id: 'platforms', icon: '⚙️', label: t.platformSettings },
+    { id: 'usersettings', icon: '⚙️', label: 'Settings' },
   ];
 
+  const closeAnyModal = useCallback(() => {
+    if (logoutConfirmOpen) { setLogoutConfirmOpen(false); return; }
+    if (shortcutsModalOpen) { setShortcutsModalOpen(false); return; }
+    if (notifCenterOpen) { setNotifCenterOpen(false); return; }
+    if (exportModalOpen) { setExportModalOpen(false); return; }
+    if (reportModal) { setReportModal(null); return; }
+    if (priceHistoryModal) { setPriceHistoryModal(null); return; }
+    if (productModal) { closeProductModal(); return; }
+    if (editingPlatform) { setEditingPlatform(null); return; }
+    if (settingsAgent) { setSettingsAgent(null); return; }
+  }, [logoutConfirmOpen, shortcutsModalOpen, notifCenterOpen, exportModalOpen, reportModal, priceHistoryModal, productModal, editingPlatform, settingsAgent, closeProductModal]);
+
+  useEffect(() => {
+    const handler = (e) => {
+      const tag = document.activeElement?.tagName;
+      const isTyping = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
+
+      if (e.key === 'Escape') {
+        closeAnyModal();
+        return;
+      }
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setPage('research');
+        setTimeout(() => researchInputRef.current?.focus(), 60);
+        return;
+      }
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'd') {
+        e.preventDefault();
+        setPage('dashboard');
+        return;
+      }
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'p') {
+        e.preventDefault();
+        setPage('myproducts');
+        return;
+      }
+      if (e.key === '?' && !isTyping) {
+        e.preventDefault();
+        setShortcutsModalOpen(true);
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [closeAnyModal]);
+
   return (
-    <div className={`dsh ${dark ? 'dsh--dark' : 'dsh--light'}`} dir="ltr">
+    <div
+      className={`dsh ${dark ? 'dsh--dark' : 'dsh--light'}`}
+      dir="ltr"
+      style={appSettings.accentColor !== DEFAULT_SETTINGS.accentColor ? deriveAccentVars(appSettings.accentColor) : undefined}
+    >
       <div className="dsh-toasts">
         {toasts.map(x => (
           <div key={x.id} className={`dsh-toast dsh-toast--${x.type}`}>
@@ -774,7 +1601,68 @@ const deselectAllAgents = useCallback(() => {
               <input type="checkbox" checked={autoRefresh} onChange={e => setAutoRefresh(e.target.checked)} />
               <span className="dsh-switch-slider" />
             </label>
-            <button className="dsh-btn dsh-btn--ghost" onClick={() => fetchAll(false)}>⟳ {t.refresh}</button>
+            <button
+              className="dsh-btn dsh-btn--ghost"
+              onClick={() => fetchAll(false)}
+              disabled={refreshingAll}
+              title="Refresh all data"
+            >
+              {refreshingAll ? <span className="dsh-spinner" /> : '⟳'} {t.refresh}
+            </button>
+
+            <button
+              className="dsh-icon-btn dsh-icon-btn--danger"
+              onClick={() => setLogoutConfirmOpen(true)}
+              title="Log out"
+            >
+              ✕
+            </button>
+
+            <div className="dsh-notif-wrap">
+              <button
+                className="dsh-notif-bell"
+                onClick={() => setNotifCenterOpen(o => !o)}
+                title="Notifications"
+              >
+                🔔
+                {unreadNotifCount > 0 && <span className="dsh-notif-badge">{unreadNotifCount > 9 ? '9+' : unreadNotifCount}</span>}
+              </button>
+
+              {notifCenterOpen && (
+                <>
+                  <div className="dsh-notif-overlay" onClick={() => setNotifCenterOpen(false)} />
+                  <div className="dsh-notif-panel">
+                    <div className="dsh-notif-panel-header">
+                      <span>Notifications</span>
+                      <div className="dsh-notif-panel-actions">
+                        <button onClick={markAllNotificationsRead} disabled={unreadNotifCount === 0}>Mark all read</button>
+                        <button onClick={clearAllNotifications} disabled={notifications.length === 0}>Clear all</button>
+                      </div>
+                    </div>
+                    <div className="dsh-notif-list">
+                      {notifications.length === 0 ? (
+                        <div className="dsh-notif-empty">No notifications yet</div>
+                      ) : (
+                        notifications.map(n => (
+                          <div
+                            key={n.id}
+                            className={`dsh-notif-item dsh-notif-item--${n.type} ${n.read ? '' : 'dsh-notif-item--unread'}`}
+                            onClick={() => markNotificationRead(n.id)}
+                          >
+                            <span className="dsh-notif-icon">{NOTIF_ICONS[n.type] || 'ℹ'}</span>
+                            <div className="dsh-notif-body">
+                              <div className="dsh-notif-message">{n.message}</div>
+                              <div className="dsh-notif-time">{formatRelativeTime(n.time)}</div>
+                            </div>
+                            {!n.read && <span className="dsh-notif-dot" />}
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
           </div>
         </header>
 
@@ -967,6 +1855,7 @@ const deselectAllAgents = useCallback(() => {
 
             <div className="dsh-research-controls">
               <input
+                ref={researchInputRef}
                 className="dsh-input dsh-research-input"
                 placeholder={t.researchPlaceholder}
                 value={researchQuery}
@@ -994,6 +1883,92 @@ const deselectAllAgents = useCallback(() => {
               </button>
             </div>
 
+            <div className="dsh-filters-toggle-row">
+              <button
+                type="button"
+                className={`dsh-filters-toggle ${filtersOpen ? 'dsh-filters-toggle--open' : ''}`}
+                onClick={() => setFiltersOpen(o => !o)}
+                aria-expanded={filtersOpen}
+              >
+                🎛 Filters
+                {activeResearchFilterCount > 0 && (
+                  <span className="dsh-filters-count-badge">{activeResearchFilterCount}</span>
+                )}
+                <span className="dsh-filters-chevron">{filtersOpen ? '▲' : '▼'}</span>
+              </button>
+            </div>
+
+            {filtersOpen && (
+              <div className="dsh-research-filters">
+                <div className="dsh-filter-group">
+                  <label>Sort By</label>
+                  <select className="dsh-settings-select" value={sortBy} onChange={e => setSortBy(e.target.value)}>
+                    <option value="">Default</option>
+                    <option value="price_asc">Price: Low to High</option>
+                    <option value="price_desc">Price: High to Low</option>
+                    <option value="orders_desc">Most Orders</option>
+                    <option value="rating_desc">Best Rating</option>
+                    <option value="newest">Newest</option>
+                  </select>
+                </div>
+                <div className="dsh-filter-group">
+                  <label>Price</label>
+                  <input
+                    type="number"
+                    className="dsh-input dsh-filter-num"
+                    placeholder="Min"
+                    min="0"
+                    value={priceMin}
+                    onChange={e => setPriceMin(e.target.value)}
+                  />
+                  <span className="dsh-filter-dash">–</span>
+                  <input
+                    type="number"
+                    className="dsh-input dsh-filter-num"
+                    placeholder="Max"
+                    min="0"
+                    value={priceMax}
+                    onChange={e => setPriceMax(e.target.value)}
+                  />
+                </div>
+                <div className="dsh-filter-group">
+                  <label>Min Rating</label>
+                  <span className="dsh-star-rating dsh-star-selector">
+                    {[1, 2, 3, 4, 5].map(i => (
+                      <span
+                        key={i}
+                        className={`dsh-star ${i <= minRating ? 'dsh-star--filled' : ''}`}
+                        onClick={() => setMinRating(i === minRating ? 0 : i)}
+                      >★</span>
+                    ))}
+                  </span>
+                </div>
+                <div className="dsh-filter-group">
+                  <label className="dsh-filter-checkbox-label">
+                    <input
+                      type="checkbox"
+                      checked={inStockOnly}
+                      onChange={e => setInStockOnly(e.target.checked)}
+                    />
+                    In Stock Only
+                  </label>
+                </div>
+                <div className="dsh-filter-actions">
+                  <button
+                    className="dsh-btn dsh-btn--primary"
+                    onClick={searchResearchProducts}
+                    disabled={researchLoading || !researchQuery.trim()}
+                    title="Re-run the search with these filters applied server-side"
+                  >
+                    ✓ Apply Filters
+                  </button>
+                  {hasActiveResearchFilters && (
+                    <button className="dsh-btn dsh-btn--ghost" onClick={clearResearchFilters}>✕ Clear Filters</button>
+                  )}
+                </div>
+              </div>
+            )}
+
             {researchLoading ? (
               <div className="dsh-grid">{[0, 1, 2, 3, 4, 5].map(i => <SkeletonProductCard key={i} />)}</div>
             ) : researchError ? (
@@ -1007,10 +1982,21 @@ const deselectAllAgents = useCallback(() => {
               <EmptyState icon="📦" title={t.searchPromptTitle} subtitle={t.searchPromptSub} />
             ) : researchResults.length === 0 ? (
               <EmptyState icon="🔍" title={t.noProductsTitle} subtitle={t.noProductsSub} />
+            ) : sortedResearchResults.length === 0 ? (
+              <EmptyState
+                icon="🔍"
+                title="No Matches"
+                subtitle="No products match the current filters"
+                action={<button className="dsh-btn dsh-btn--ghost" onClick={clearResearchFilters}>✕ Clear Filters</button>}
+              />
             ) : (
               <div className="dsh-grid">
-                {researchResults.map((p, i) => (
-                  <div key={p.url || `${p.platform}-${i}`} className="dsh-product-card">
+                {sortedResearchResults.map((p, i) => (
+                  <div
+                    key={p.url || `${p.platform}-${i}`}
+                    className="dsh-product-card"
+                    onClick={() => openProductModal(p, 'research')}
+                  >
                     <div className="dsh-product-image">
                       {p.image_url ? (
                         <img src={p.image_url} alt={p.name} onError={e => { e.target.style.display = 'none'; }} />
@@ -1037,7 +2023,7 @@ const deselectAllAgents = useCallback(() => {
                     </div>
                     <button
                       className="dsh-btn dsh-btn--primary dsh-product-add-btn"
-                      onClick={() => setSelectedResearchProduct(p)}
+                      onClick={(e) => { e.stopPropagation(); openProductModal(p, 'research'); }}
                       disabled={p._added}
                     >
                       {p._added ? '✓ Added' : `+ ${t.addToShop}`}
@@ -1045,6 +2031,155 @@ const deselectAllAgents = useCallback(() => {
                   </div>
                 ))}
               </div>
+            )}
+          </section>
+        )}
+
+        {page === 'myproducts' && (
+          <section className="dsh-section">
+            <div className="dsh-section-head">
+              <h2>🛍️ My Products</h2>
+              <div className="dsh-tools">
+                <input
+                  className="dsh-input"
+                  placeholder="Search saved products..."
+                  value={myProductsSearch}
+                  onChange={e => { setMyProductsSearch(e.target.value); setMyProductsPageNum(1); }}
+                />
+                {selectedProductCount > 0 && (
+                  <button className="dsh-btn dsh-btn--ghost" onClick={bulkDeleteSelected} disabled={bulkDeleting}>
+                    {bulkDeleting ? (<><span className="dsh-spinner" /> Deleting...</>) : `🗑 Delete (${selectedProductCount})`}
+                  </button>
+                )}
+                <button
+                  className="dsh-btn dsh-btn--ghost"
+                  onClick={refreshAllPrices}
+                  disabled={refreshingPrices || myProducts.length === 0}
+                >
+                  {refreshingPrices ? (<><span className="dsh-spinner" /> Refreshing...</>) : '💰 Refresh Prices'}
+                </button>
+                <button
+                  className="dsh-btn dsh-btn--ghost"
+                  onClick={() => setExportModalOpen(true)}
+                  disabled={filteredMyProducts.length === 0}
+                >
+                  ⬇ Export
+                </button>
+              </div>
+            </div>
+
+            {myProductsLoading ? (
+              <div className="dsh-list">{[0, 1, 2, 3].map(i => <SkeletonTaskRow key={i} />)}</div>
+            ) : filteredMyProducts.length === 0 ? (
+              myProductsSearch.trim() ? (
+                <EmptyState
+                  icon="🔍"
+                  title={t.noResultsTitle}
+                  subtitle="No saved products match your search"
+                  action={<button className="dsh-btn dsh-btn--ghost" onClick={() => setMyProductsSearch('')}>{t.clearSearch}</button>}
+                />
+              ) : (
+                <EmptyState
+                  icon="🛍️"
+                  title="No Saved Products"
+                  subtitle="Products you add from Products Research will show up here"
+                  action={<button className="dsh-btn dsh-btn--primary" onClick={() => setPage('research')}>📦 {t.productsResearch}</button>}
+                />
+              )
+            ) : (
+              <>
+                <div className="dsh-products-table-wrap">
+                  <table className="dsh-products-table">
+                    <thead>
+                      <tr>
+                        <th className="dsh-products-th-check">
+                          <input type="checkbox" checked={allOnPageSelected} onChange={toggleSelectAllOnPage} />
+                        </th>
+                        <th></th>
+                        <th>Name</th>
+                        <th>Price</th>
+                        <th>Platform</th>
+                        <th>Date Added</th>
+                        <th>Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {paginatedMyProducts.map(p => (
+                        <tr key={p.id} className={selectedProductIds[p.id] ? 'dsh-products-row--selected' : ''}>
+                          <td>
+                            <input
+                              type="checkbox"
+                              checked={!!selectedProductIds[p.id]}
+                              onChange={() => toggleProductSelected(p.id)}
+                            />
+                          </td>
+                          <td>
+                            <div className="dsh-products-thumb">
+                              {p.image_url ? (
+                                <img src={p.image_url} alt={p.name} onError={e => { e.target.style.display = 'none'; }} />
+                              ) : (
+                                <span>📦</span>
+                              )}
+                            </div>
+                          </td>
+                          <td className="dsh-products-name-cell" title={p.name}>{p.name}</td>
+                          <td>{p.price != null ? `${p.currency || 'USD'} ${Number(p.price).toFixed(2)}` : '—'}</td>
+                          <td><span className="dsh-badge dsh-badge--off">{p.platform}</span></td>
+                          <td>{p.created_at ? new Date(p.created_at).toLocaleDateString() : '—'}</td>
+                          <td>
+                            <div className="dsh-products-actions">
+                              <button
+                                className="dsh-agent-btn dsh-agent-btn--settings dsh-agent-btn--icon"
+                                title="View details"
+                                onClick={() => openProductModal(p, 'saved')}
+                              >
+                                👁
+                              </button>
+                              <button
+                                className="dsh-agent-btn dsh-agent-btn--settings dsh-agent-btn--icon"
+                                title="Price History"
+                                onClick={() => openPriceHistory(p)}
+                              >
+                                📈
+                              </button>
+                              <button
+                                className="dsh-agent-btn dsh-agent-btn--pause dsh-agent-btn--icon"
+                                title="Delete"
+                                onClick={() => deleteSavedProduct(p.id)}
+                                disabled={deletingProductId === p.id}
+                              >
+                                {deletingProductId === p.id ? <span className="dsh-spinner" /> : '🗑'}
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                {myProductsTotalPages > 1 && (
+                  <div className="dsh-pagination">
+                    <button
+                      className="dsh-btn dsh-btn--ghost"
+                      disabled={myProductsPageClamped <= 1}
+                      onClick={() => setMyProductsPageNum(p => Math.max(1, p - 1))}
+                    >
+                      ‹ Prev
+                    </button>
+                    <span className="dsh-pagination-info">
+                      Page {myProductsPageClamped} of {myProductsTotalPages} · {myProductsTotal} total
+                    </span>
+                    <button
+                      className="dsh-btn dsh-btn--ghost"
+                      disabled={myProductsPageClamped >= myProductsTotalPages}
+                      onClick={() => setMyProductsPageNum(p => Math.min(myProductsTotalPages, p + 1))}
+                    >
+                      Next ›
+                    </button>
+                  </div>
+                )}
+              </>
             )}
           </section>
         )}
@@ -1111,6 +2246,148 @@ const deselectAllAgents = useCallback(() => {
           </section>
         )}
 
+        {page === 'usersettings' && (
+          <section className="dsh-section">
+            <div className="dsh-section-head">
+              <h2>⚙️ Settings</h2>
+            </div>
+
+            <div className="dsh-user-settings">
+              <div className="dsh-settings-panel">
+                <h3 className="dsh-settings-panel-title">👤 Profile</h3>
+                <div className="dsh-settings-section">
+                  <div className="dsh-settings-label">Display Name</div>
+                  <input
+                    className="dsh-input dsh-platform-form-input"
+                    value={settingsDraft.displayName}
+                    placeholder="Your name"
+                    onChange={e => setSettingsDraft(s => ({ ...s, displayName: e.target.value }))}
+                  />
+                </div>
+                <div className="dsh-settings-section">
+                  <div className="dsh-settings-label">Email</div>
+                  <input
+                    type="email"
+                    className="dsh-input dsh-platform-form-input"
+                    value={settingsDraft.email}
+                    placeholder="you@example.com"
+                    onChange={e => setSettingsDraft(s => ({ ...s, email: e.target.value }))}
+                  />
+                </div>
+              </div>
+
+              <div className="dsh-settings-panel">
+                <h3 className="dsh-settings-panel-title">🎨 Appearance</h3>
+                <div className="dsh-settings-section">
+                  <div className="dsh-settings-item">
+                    <div className="dsh-settings-item-text">
+                      <div className="dsh-settings-item-name">Dark Mode</div>
+                      <div className="dsh-settings-item-desc">Switch between dark and light theme</div>
+                    </div>
+                    <label className="dsh-toggle">
+                      <input
+                        type="checkbox"
+                        checked={settingsDraft.theme === 'dark'}
+                        onChange={e => setSettingsDraft(s => ({ ...s, theme: e.target.checked ? 'dark' : 'light' }))}
+                      />
+                      <span className="dsh-toggle-slider" />
+                    </label>
+                  </div>
+                </div>
+                <div className="dsh-settings-section">
+                  <div className="dsh-settings-label">Accent Color</div>
+                  <div className="dsh-accent-swatches">
+                    {ACCENT_PRESETS.map(preset => (
+                      <button
+                        key={preset.color}
+                        type="button"
+                        className={`dsh-accent-swatch ${settingsDraft.accentColor === preset.color ? 'dsh-accent-swatch--active' : ''}`}
+                        style={{ background: preset.color }}
+                        title={preset.name}
+                        onClick={() => setSettingsDraft(s => ({ ...s, accentColor: preset.color }))}
+                      />
+                    ))}
+                    <input
+                      type="color"
+                      className="dsh-accent-custom"
+                      value={settingsDraft.accentColor}
+                      title="Custom color"
+                      onChange={e => setSettingsDraft(s => ({ ...s, accentColor: e.target.value }))}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div className="dsh-settings-panel">
+                <h3 className="dsh-settings-panel-title">📊 Dashboard</h3>
+                <div className="dsh-settings-section">
+                  <div className="dsh-settings-label">Default Page on Login</div>
+                  <select
+                    className="dsh-settings-select"
+                    value={settingsDraft.defaultPage}
+                    onChange={e => setSettingsDraft(s => ({ ...s, defaultPage: e.target.value }))}
+                  >
+                    {DEFAULT_PAGE_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                  </select>
+                </div>
+                <div className="dsh-settings-section">
+                  <div className="dsh-settings-label">Auto-Refresh Interval</div>
+                  <select
+                    className="dsh-settings-select"
+                    value={settingsDraft.autoRefreshInterval}
+                    onChange={e => setSettingsDraft(s => ({ ...s, autoRefreshInterval: Number(e.target.value) }))}
+                  >
+                    {AUTO_REFRESH_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                  </select>
+                </div>
+              </div>
+
+              <div className="dsh-settings-panel">
+                <h3 className="dsh-settings-panel-title">📦 Products</h3>
+                <div className="dsh-settings-section">
+                  <div className="dsh-settings-label">Default Search Platforms</div>
+                  <div className="dsh-platform-checks">
+                    {RESEARCH_PLATFORMS.map(p => (
+                      <label key={p.id} className="dsh-platform-check">
+                        <input
+                          type="checkbox"
+                          checked={settingsDraft.defaultPlatforms.includes(p.id)}
+                          onChange={() => setSettingsDraft(s => ({
+                            ...s,
+                            defaultPlatforms: s.defaultPlatforms.includes(p.id)
+                              ? s.defaultPlatforms.filter(x => x !== p.id)
+                              : [...s.defaultPlatforms, p.id],
+                          }))}
+                        />
+                        {p.label}
+                      </label>
+                    ))}
+                  </div>
+                </div>
+                <div className="dsh-settings-section">
+                  <div className="dsh-settings-label">Default Max Results</div>
+                  <input
+                    type="number"
+                    min={1}
+                    max={50}
+                    className="dsh-input dsh-filter-num"
+                    value={settingsDraft.defaultMaxResults}
+                    onChange={e => setSettingsDraft(s => ({
+                      ...s,
+                      defaultMaxResults: Math.max(1, Math.min(50, Number(e.target.value) || 1)),
+                    }))}
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="dsh-settings-actions dsh-user-settings-actions">
+              <button className="dsh-btn dsh-btn--primary" onClick={saveSettings}>✓ Save Settings</button>
+              <button className="dsh-btn dsh-btn--ghost" onClick={resetSettingsDraft}>↺ Reset to Defaults</button>
+            </div>
+          </section>
+        )}
+
         {page === 'tasks' && (
           <section className="dsh-section">
             <div className="dsh-section-head">
@@ -1157,8 +2434,13 @@ const deselectAllAgents = useCallback(() => {
 
         {page === 'analytics' && (
           <section className="dsh-section">
-            <h2>📊 Performance Analytics</h2>
-            
+            <div className="dsh-section-head">
+              <h2>📊 Performance Analytics</h2>
+              <button className="dsh-btn dsh-btn--ghost" onClick={generateReport} disabled={reportLoading}>
+                {reportLoading ? (<><span className="dsh-spinner" /> Generating...</>) : '📄 Generate Report'}
+              </button>
+            </div>
+
             <div className="dsh-analytics-grid">
               {loading ? [0, 1, 2, 3, 4].map(i => <SkeletonChart key={i} />) : (
               <>
@@ -1351,46 +2633,27 @@ const deselectAllAgents = useCallback(() => {
         </div>
       )}
 
-      {selectedResearchProduct && (
-        <div className="dsh-modal-back" onClick={() => !addingProduct && setSelectedResearchProduct(null)}>
-          <div className="dsh-modal dsh-product-modal" onClick={e => e.stopPropagation()}>
-            <h3>{t.addProductTitle}</h3>
-            <div className="dsh-product-modal-body">
-              <div className="dsh-product-modal-image">
-                {selectedResearchProduct.image_url ? (
-                  <img src={selectedResearchProduct.image_url} alt={selectedResearchProduct.name} onError={e => { e.target.style.display = 'none'; }} />
-                ) : (
-                  <span>📦</span>
-                )}
-              </div>
-              <div className="dsh-product-modal-info">
-                <h4>{selectedResearchProduct.name}</h4>
-                <div className="dsh-modal-rows">
-                  <div><b>Price:</b> {selectedResearchProduct.price != null ? `${selectedResearchProduct.currency || 'USD'} ${Number(selectedResearchProduct.price).toFixed(2)}` : '—'}</div>
-                  <div><b>Rating:</b> {selectedResearchProduct.rating != null ? `⭐ ${Number(selectedResearchProduct.rating).toFixed(1)}` : '—'}</div>
-                  <div><b>Reviews:</b> {selectedResearchProduct.reviews_count ?? '—'}</div>
-                  <div><b>{t.status}:</b> <span className="dsh-badge dsh-badge--off">{selectedResearchProduct.platform}</span></div>
-                  <div><b>Stock:</b> <StatusBadge status={selectedResearchProduct.in_stock === false ? 'offline' : 'online'} /></div>
-                  {selectedResearchProduct.seller_name && <div><b>Seller:</b> {selectedResearchProduct.seller_name}</div>}
-                  {selectedResearchProduct.shipping_price != null && (
-                    <div><b>Shipping:</b> {selectedResearchProduct.currency || 'USD'} {Number(selectedResearchProduct.shipping_price).toFixed(2)}</div>
-                  )}
-                  {selectedResearchProduct.url && (
-                    <div><b>Link:</b> <a href={selectedResearchProduct.url} target="_blank" rel="noreferrer">View on {selectedResearchProduct.platform}</a></div>
-                  )}
-                </div>
-              </div>
-            </div>
-            <div className="dsh-settings-actions">
-              <button className="dsh-btn dsh-btn--primary" onClick={confirmAddToShop} disabled={addingProduct}>
-                {addingProduct ? (<><span className="dsh-spinner" /> Adding...</>) : `✓ ${t.confirmAdd}`}
-              </button>
-              <button className="dsh-btn dsh-btn--ghost" onClick={() => setSelectedResearchProduct(null)} disabled={addingProduct}>
-                {t.close}
-              </button>
-            </div>
-          </div>
-        </div>
+      {productModal && (
+        <ProductDetailModal
+          product={productModal.product}
+          onClose={closeProductModal}
+          onAddToShop={productModal.mode === 'research' ? confirmAddToShop : undefined}
+          adding={addingProduct}
+          closing={productModalClosing}
+          onAnalyze={analyzeProductWithAi}
+          analyzing={aiAnalyzing}
+          analysis={aiAnalysis}
+          analysisError={aiAnalysisError}
+          onApplyDescription={aiAnalysis?.description ? applyAiDescription : undefined}
+        />
+      )}
+
+      {priceHistoryModal && (
+        <PriceHistoryModal
+          modal={priceHistoryModal}
+          loading={priceHistoryLoading}
+          onClose={() => setPriceHistoryModal(null)}
+        />
       )}
 
       {editingPlatform && (
@@ -1450,6 +2713,177 @@ const deselectAllAgents = useCallback(() => {
               <button className="dsh-btn dsh-btn--ghost" onClick={closePlatformModal} disabled={savingPlatform}>
                 {t.cancel}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {exportModalOpen && (
+        <div className="dsh-modal-back" onClick={() => setExportModalOpen(false)}>
+          <div className="dsh-modal dsh-export-modal" onClick={e => e.stopPropagation()}>
+            <h3>⬇ Export Products</h3>
+
+            <div className="dsh-settings-section">
+              <div className="dsh-settings-label">Format</div>
+              <div className="dsh-export-format-picker">
+                {['csv', 'json'].map(fmt => (
+                  <button
+                    key={fmt}
+                    type="button"
+                    className={`dsh-btn ${exportForm.format === fmt ? 'dsh-btn--primary' : 'dsh-btn--ghost'}`}
+                    onClick={() => setExportForm(f => ({ ...f, format: fmt }))}
+                  >
+                    {fmt.toUpperCase()}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="dsh-settings-section">
+              <div className="dsh-settings-label">Columns</div>
+              <div className="dsh-export-columns">
+                {EXPORT_COLUMNS.map(col => (
+                  <label key={col.key} className="dsh-platform-check">
+                    <input
+                      type="checkbox"
+                      checked={exportForm.columns.includes(col.key)}
+                      onChange={() => setExportForm(f => ({
+                        ...f,
+                        columns: f.columns.includes(col.key)
+                          ? f.columns.filter(k => k !== col.key)
+                          : [...f.columns, col.key],
+                      }))}
+                    />
+                    {col.label}
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            <div className="dsh-settings-section">
+              <div className="dsh-settings-label">Date Added Range (optional)</div>
+              <div className="dsh-export-date-range">
+                <input
+                  type="date"
+                  className="dsh-input"
+                  value={exportForm.dateFrom}
+                  onChange={e => setExportForm(f => ({ ...f, dateFrom: e.target.value }))}
+                />
+                <span className="dsh-filter-dash">to</span>
+                <input
+                  type="date"
+                  className="dsh-input"
+                  value={exportForm.dateTo}
+                  onChange={e => setExportForm(f => ({ ...f, dateTo: e.target.value }))}
+                />
+              </div>
+            </div>
+
+            <div className="dsh-settings-actions">
+              <button className="dsh-btn dsh-btn--primary" onClick={runProductExport}>⬇ Export</button>
+              <button className="dsh-btn dsh-btn--ghost" onClick={() => setExportModalOpen(false)}>{t.cancel}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {reportModal && (
+        <div className="dsh-modal-back" onClick={() => setReportModal(null)}>
+          <div className="dsh-modal dsh-report-modal" onClick={e => e.stopPropagation()}>
+            <div className="dsh-report-printable">
+              <div className="dsh-report-header">
+                <div className="dsh-report-title">
+                  <span className="dsh-logo-mark">◆</span> Nexus Performance Report
+                </div>
+                <div className="dsh-report-date">Generated {new Date(reportModal.generatedAt).toLocaleString()}</div>
+              </div>
+
+              <div className="dsh-report-stats">
+                <div className="dsh-report-stat">
+                  <span className="dsh-ai-label">Total Products</span>
+                  <span className="dsh-ai-value">{reportModal.totalProducts}</span>
+                </div>
+                <div className="dsh-report-stat">
+                  <span className="dsh-ai-label">Average Price</span>
+                  <span className="dsh-ai-value">${reportModal.avgPrice.toFixed(2)}</span>
+                </div>
+                <div className="dsh-report-stat">
+                  <span className="dsh-ai-label">Platforms Used</span>
+                  <span className="dsh-ai-value">{Object.keys(reportModal.platformCounts).length}</span>
+                </div>
+              </div>
+
+              <h4 className="dsh-report-section-title">Platform Distribution</h4>
+              {Object.keys(reportModal.platformCounts).length === 0 ? (
+                <p className="dsh-product-detail-desc">No saved products yet.</p>
+              ) : (
+                <div className="dsh-report-platform-list">
+                  {Object.entries(reportModal.platformCounts).map(([platform, count]) => (
+                    <div key={platform} className="dsh-report-platform-row">
+                      <span className="dsh-report-platform-name">{platform}</span>
+                      <div className="dsh-report-platform-bar">
+                        <div
+                          className="dsh-report-platform-bar-fill"
+                          style={{ width: `${(count / reportModal.totalProducts) * 100}%` }}
+                        />
+                      </div>
+                      <span className="dsh-report-platform-count">{count}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <h4 className="dsh-report-section-title">Recent Activity</h4>
+              {reportModal.recentActivity.length === 0 ? (
+                <p className="dsh-product-detail-desc">No recent activity recorded.</p>
+              ) : (
+                <div className="dsh-report-activity-list">
+                  {reportModal.recentActivity.map(n => (
+                    <div key={n.id} className="dsh-report-activity-row">
+                      <span>{NOTIF_ICONS[n.type] || 'ℹ'}</span>
+                      <span className="dsh-report-activity-message">{n.message}</span>
+                      <span className="dsh-report-activity-time">{formatRelativeTime(n.time)}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="dsh-settings-actions dsh-report-actions">
+              <button className="dsh-btn dsh-btn--primary" onClick={() => window.print()}>🖨 Print</button>
+              <button className="dsh-btn dsh-btn--ghost" onClick={() => setReportModal(null)}>{t.close}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {shortcutsModalOpen && (
+        <div className="dsh-modal-back" onClick={() => setShortcutsModalOpen(false)}>
+          <div className="dsh-modal dsh-shortcuts-modal" onClick={e => e.stopPropagation()}>
+            <h3>⌨️ Keyboard Shortcuts</h3>
+            <div className="dsh-shortcuts-list">
+              {KEYBOARD_SHORTCUTS.map(s => (
+                <div key={s.keys} className="dsh-shortcut-row">
+                  <kbd className="dsh-shortcut-keys">{s.keys}</kbd>
+                  <span>{s.description}</span>
+                </div>
+              ))}
+            </div>
+            <div className="dsh-settings-actions">
+              <button className="dsh-btn dsh-btn--ghost" onClick={() => setShortcutsModalOpen(false)}>{t.close}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {logoutConfirmOpen && (
+        <div className="dsh-modal-back" onClick={() => setLogoutConfirmOpen(false)}>
+          <div className="dsh-modal dsh-logout-modal" onClick={e => e.stopPropagation()}>
+            <h3>⏻ Log Out</h3>
+            <p className="dsh-logout-text">Are you sure you want to log out of Nexus?</p>
+            <div className="dsh-settings-actions">
+              <button className="dsh-btn dsh-btn--ghost" onClick={() => setLogoutConfirmOpen(false)}>Cancel</button>
+              <button className="dsh-btn dsh-btn--danger" onClick={onLogout}>⏻ Log Out</button>
             </div>
           </div>
         </div>

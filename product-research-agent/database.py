@@ -4,7 +4,7 @@ SQLite database setup (SQLAlchemy) for the Product Research Agent.
 import json
 from datetime import datetime, timezone
 
-from sqlalchemy import create_engine, Column, Integer, String, Float, Boolean, Text, DateTime
+from sqlalchemy import create_engine, Column, Integer, String, Float, Boolean, Text, DateTime, ForeignKey
 from sqlalchemy.orm import sessionmaker, declarative_base, Session
 
 from config import settings
@@ -58,6 +58,18 @@ class Product(Base):
             return json.loads(self.raw_data)
         except (TypeError, ValueError):
             return {}
+
+
+class PriceHistory(Base):
+    """A price snapshot for a saved product, recorded automatically on save and on refresh."""
+
+    __tablename__ = "price_history"
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    product_id = Column(Integer, ForeignKey("products.id", ondelete="CASCADE"), nullable=False, index=True)
+    price = Column(Float, nullable=False)
+    currency = Column(String, default="USD")
+    recorded_at = Column(DateTime, default=utcnow)
 
 
 class PlatformDB(Base):

@@ -21,7 +21,7 @@ class Settings(BaseSettings):
 
     # --- Ollama (AI summarization) ---
     ollama_host: str = "127.0.0.1:11435"
-    ollama_model: str = "llama3"
+    ollama_model: str = "mistral:latest"
     ollama_timeout: int = 60
 
     # --- CORS (React frontend) ---

@@ -21,20 +21,29 @@ import scraper_aliexpress
 import scraper_amazon
 import scraper_ebay
 from config import settings
-from database import PlatformDB, Product, get_db, init_db, seed_builtin_platforms
+from database import PlatformDB, PriceHistory, Product, get_db, init_db, seed_builtin_platforms
 from models import (
+    AnalyzeProductRequest,
     HealthResponse,
     MessageResponse,
     PlatformCreate,
     PlatformResponse,
     PlatformTestResponse,
     PlatformUpdate,
+    PriceHistoryEntry,
+    PriceHistoryResponse,
+    ProductAnalysisResponse,
     ProductCreate,
     ProductListResponse,
     ProductResponse,
+    ProductUpdate,
+    RefreshPriceResult,
+    RefreshPricesResponse,
     ScrapedProduct,
     SearchProductsRequest,
     SearchProductsResponse,
+    SummarizeProductsRequest,
+    SummarizeProductsResponse,
 )
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
@@ -62,6 +71,8 @@ TAGS_METADATA = [
     {"name": "health", "description": "Service and dependency status."},
     {"name": "products", "description": "Search platforms for products and manage the saved product catalog."},
     {"name": "platforms", "description": "Manage which e-commerce platforms (built-in and custom) can be searched."},
+    {"name": "ai", "description": "Ollama-powered product analysis and comparison."},
+    {"name": "price-tracking", "description": "Price history and refresh for saved products."},
 ]
 
 app = FastAPI(
@@ -212,7 +223,37 @@ def search_products(payload: SearchProductsRequest, db: Session = Depends(get_db
             logger.exception("Scraper for %s failed", platform_name)
             errors[platform_name] = f"{type(exc).__name__}: {exc}"
 
+    results = _filter_and_sort_results(results, payload)
+
     return SearchProductsResponse(query=payload.query, total_results=len(results), results=results, errors=errors)
+
+
+def _filter_and_sort_results(
+    results: list[ScrapedProduct], payload: SearchProductsRequest
+) -> list[ScrapedProduct]:
+    """Apply the request's price/rating/stock filters and sort order to scraped results."""
+    if payload.min_price is not None:
+        results = [r for r in results if r.price is not None and r.price >= payload.min_price]
+    if payload.max_price is not None:
+        results = [r for r in results if r.price is not None and r.price <= payload.max_price]
+    if payload.min_rating is not None:
+        results = [r for r in results if r.rating is not None and r.rating >= payload.min_rating]
+    if payload.in_stock_only:
+        results = [r for r in results if r.in_stock]
+
+    sort_keys = {
+        "price_asc": lambda r: (r.price is None, r.price or 0),
+        "price_desc": lambda r: (r.price is None, -(r.price or 0)),
+        "rating_desc": lambda r: (r.rating is None, -(r.rating or 0)),
+        "orders_desc": lambda r: (r.orders_count is None, -(r.orders_count or 0)),
+        # Freshly-scraped results have no timestamp — "newest" keeps scrape order.
+        "newest": None,
+    }
+    sort_key = sort_keys.get(payload.sort_by)
+    if sort_key:
+        results = sorted(results, key=sort_key)
+
+    return results
 
 
 # ─────────────────────────── Products CRUD ───────────────────────────
@@ -305,10 +346,48 @@ def add_to_database(payload: ProductCreate, db: Session = Depends(get_db)):
         db.add(product)
         db.commit()
         db.refresh(product)
+        if product.price is not None:
+            db.add(PriceHistory(product_id=product.id, price=product.price, currency=product.currency))
+            db.commit()
     except SQLAlchemyError as exc:
         db.rollback()
         logger.exception("Failed to save product %r", payload.name)
         raise HTTPException(status_code=500, detail=f"Database error while saving product: {exc}") from exc
+
+    return _to_product_response(product)
+
+
+@app.put(
+    "/api/product/{product_id}",
+    response_model=ProductResponse,
+    tags=["products"],
+    summary="Update a saved product",
+    responses={404: {"description": "Product not found"}},
+)
+def update_product(product_id: int, payload: ProductUpdate, db: Session = Depends(get_db)):
+    """
+    Partially update a saved product — only fields provided in the body are changed.
+    If `price` changes, a new price_history entry is recorded automatically.
+    """
+    product = db.get(Product, product_id)
+    if not product:
+        raise HTTPException(status_code=404, detail=f"Product {product_id} not found")
+
+    updates = payload.model_dump(exclude_unset=True)
+    price_changed = "price" in updates and updates["price"] != product.price
+
+    for field, value in updates.items():
+        setattr(product, field, value)
+
+    try:
+        if price_changed and product.price is not None:
+            db.add(PriceHistory(product_id=product.id, price=product.price, currency=product.currency))
+        db.commit()
+        db.refresh(product)
+    except SQLAlchemyError as exc:
+        db.rollback()
+        logger.exception("Failed to update product %s", product_id)
+        raise HTTPException(status_code=500, detail=f"Database error while updating product: {exc}") from exc
 
     return _to_product_response(product)
 
@@ -321,12 +400,13 @@ def add_to_database(payload: ProductCreate, db: Session = Depends(get_db)):
     responses={404: {"description": "Product not found"}},
 )
 def delete_product(product_id: int, db: Session = Depends(get_db)):
-    """Remove a saved product from the database by its id."""
+    """Remove a saved product (and its price history) from the database by its id."""
     product = db.get(Product, product_id)
     if not product:
         raise HTTPException(status_code=404, detail=f"Product {product_id} not found")
 
     try:
+        db.query(PriceHistory).filter(PriceHistory.product_id == product_id).delete()
         db.delete(product)
         db.commit()
     except SQLAlchemyError as exc:
@@ -500,6 +580,159 @@ def test_platform(platform_id: int, db: Session = Depends(get_db)):
         results_count=len(results),
         sample_results=[ScrapedProduct(**r) for r in results],
     )
+
+
+# ─────────────────────────── AI (Ollama) ───────────────────────────
+
+@app.post(
+    "/api/analyze-product",
+    response_model=ProductAnalysisResponse,
+    tags=["ai"],
+    summary="AI-analyze a product",
+)
+def analyze_product_endpoint(payload: AnalyzeProductRequest):
+    """
+    Ask the local Ollama model for a structured analysis of a product: a rewritten
+    description, a suggested retail price with profit margin, a target audience,
+    and marketing keywords. Never raises — if Ollama is unreachable or its response
+    can't be parsed, responds with `success: false` and an explanatory message
+    instead of an HTTP error, since "AI unavailable" is an expected runtime state.
+    """
+    result = ollama_integration.analyze_product(payload.model_dump())
+    if result is None:
+        return ProductAnalysisResponse(
+            success=False,
+            message="AI analysis unavailable — check that Ollama is running and the configured model is installed.",
+        )
+    return ProductAnalysisResponse(success=True, **result)
+
+
+@app.post(
+    "/api/summarize-products",
+    response_model=SummarizeProductsResponse,
+    tags=["ai"],
+    summary="AI-compare a list of products",
+)
+def summarize_products_endpoint(payload: SummarizeProductsRequest):
+    """Ask Ollama to compare a list of products and recommend the best opportunity."""
+    summary = ollama_integration.summarize_products([p.model_dump() for p in payload.products])
+    if summary is None:
+        return SummarizeProductsResponse(
+            success=False,
+            message="AI summary unavailable — check that Ollama is running and the configured model is installed.",
+        )
+    return SummarizeProductsResponse(success=True, summary=summary)
+
+
+# ─────────────────────────── Price Tracking ───────────────────────────
+
+@app.get(
+    "/api/product/{product_id}/price-history",
+    response_model=PriceHistoryResponse,
+    tags=["price-tracking"],
+    summary="Get a product's price history",
+    responses={404: {"description": "Product not found"}},
+)
+def get_price_history(product_id: int, db: Session = Depends(get_db)):
+    """Return every recorded price snapshot for a saved product, oldest first."""
+    product = db.get(Product, product_id)
+    if not product:
+        raise HTTPException(status_code=404, detail=f"Product {product_id} not found")
+
+    entries = (
+        db.query(PriceHistory)
+        .filter(PriceHistory.product_id == product_id)
+        .order_by(PriceHistory.recorded_at.asc())
+        .all()
+    )
+
+    first_price = entries[0].price if entries else None
+    latest_price = entries[-1].price if entries else None
+    change_percent = None
+    if first_price and latest_price is not None and first_price != 0:
+        change_percent = round((latest_price - first_price) / first_price * 100, 2)
+
+    return PriceHistoryResponse(
+        product_id=product.id,
+        product_name=product.name,
+        entries=[PriceHistoryEntry.model_validate(e) for e in entries],
+        first_price=first_price,
+        latest_price=latest_price,
+        change_percent=change_percent,
+    )
+
+
+@app.post(
+    "/api/products/refresh-prices",
+    response_model=RefreshPricesResponse,
+    tags=["price-tracking"],
+    summary="Refresh prices for all saved products",
+)
+def refresh_prices(db: Session = Depends(get_db)):
+    """
+    Best-effort price refresh for every saved product: re-searches each product's
+    platform by name and takes the closest match's price. This is a name-based
+    re-search rather than an exact page re-fetch, since the scrapers are built for
+    search-result pages, not single-listing pages — treat refreshed prices as an
+    estimate, not a guaranteed exact match to the original listing.
+    """
+    products = db.query(Product).all()
+    platforms_by_name = {p.name: p for p in db.query(PlatformDB).all()}
+
+    results: list[RefreshPriceResult] = []
+    updated_count = 0
+    failed_count = 0
+
+    for product in products:
+        platform = platforms_by_name.get(product.platform)
+        if not platform or not platform.is_active:
+            failed_count += 1
+            results.append(RefreshPriceResult(
+                product_id=product.id, name=product.name, old_price=product.price,
+                status="skipped — platform unavailable or inactive",
+            ))
+            continue
+
+        try:
+            raw_results = _run_scraper(platform, product.name, 3)
+        except Exception as exc:  # noqa: BLE001 - one product failing must not break the batch
+            logger.exception("Price refresh scrape failed for product %s", product.id)
+            failed_count += 1
+            results.append(RefreshPriceResult(
+                product_id=product.id, name=product.name, old_price=product.price,
+                status=f"failed — {type(exc).__name__}: {exc}",
+            ))
+            continue
+
+        new_price = raw_results[0].get("price") if raw_results else None
+        if new_price is None:
+            failed_count += 1
+            results.append(RefreshPriceResult(
+                product_id=product.id, name=product.name, old_price=product.price,
+                status="no match found",
+            ))
+            continue
+
+        old_price = product.price
+        changed = old_price is None or new_price != old_price
+        if changed:
+            product.price = new_price
+            db.add(PriceHistory(product_id=product.id, price=new_price, currency=product.currency))
+
+        updated_count += 1
+        results.append(RefreshPriceResult(
+            product_id=product.id, name=product.name, old_price=old_price, new_price=new_price,
+            changed=changed, status="updated" if changed else "unchanged",
+        ))
+
+    try:
+        db.commit()
+    except SQLAlchemyError as exc:
+        db.rollback()
+        logger.exception("Failed to commit refreshed prices")
+        raise HTTPException(status_code=500, detail=f"Database error while refreshing prices: {exc}") from exc
+
+    return RefreshPricesResponse(updated_count=updated_count, failed_count=failed_count, results=results)
 
 
 if __name__ == "__main__":
