@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session
 
 import dynamic_scraper
 import ollama_integration
+import pricing_agent
 import scraper_aliexpress
 import scraper_amazon
 import scraper_ebay
@@ -73,6 +74,7 @@ TAGS_METADATA = [
     {"name": "platforms", "description": "Manage which e-commerce platforms (built-in and custom) can be searched."},
     {"name": "ai", "description": "Ollama-powered product analysis and comparison."},
     {"name": "price-tracking", "description": "Price history and refresh for saved products."},
+    {"name": "pricing", "description": "AI-assisted selling-price suggestions, profit margin calculations, and pricing history."},
 ]
 
 app = FastAPI(
@@ -107,6 +109,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+app.include_router(pricing_agent.router)
 
 
 @app.exception_handler(Exception)
@@ -400,13 +404,16 @@ def update_product(product_id: int, payload: ProductUpdate, db: Session = Depend
     responses={404: {"description": "Product not found"}},
 )
 def delete_product(product_id: int, db: Session = Depends(get_db)):
-    """Remove a saved product (and its price history) from the database by its id."""
+    """Remove a saved product (and its price/pricing history) from the database by its id."""
     product = db.get(Product, product_id)
     if not product:
         raise HTTPException(status_code=404, detail=f"Product {product_id} not found")
 
     try:
         db.query(PriceHistory).filter(PriceHistory.product_id == product_id).delete()
+        db.query(pricing_agent.PricingHistory).filter(
+            pricing_agent.PricingHistory.product_id == product_id
+        ).delete()
         db.delete(product)
         db.commit()
     except SQLAlchemyError as exc:

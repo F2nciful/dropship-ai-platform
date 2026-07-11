@@ -77,6 +77,15 @@ const KEYBOARD_SHORTCUTS = [
   { keys: '?', description: 'Show this shortcuts panel' },
 ];
 
+const MARGIN_OPTIONS = [
+  { value: 50, strategy: 'budget', label: '50%' },
+  { value: 100, strategy: 'mid', label: '100%' },
+  { value: 150, strategy: 'premium', label: '150%' },
+  { value: 200, strategy: 'aggressive', label: '200%' },
+];
+
+const STRATEGY_LABELS = { budget: 'Budget', mid: 'Mid-Range', premium: 'Premium', aggressive: 'Aggressive', custom: 'Custom' };
+
 function loadSettings() {
   try {
     const saved = JSON.parse(localStorage.getItem('dsh-settings') || 'null');
@@ -325,7 +334,7 @@ const StarRating = ({ rating, size }) => {
 
 const ProductDetailModal = ({
   product, onClose, onAddToShop, adding, closing,
-  onAnalyze, analyzing, analysis, analysisError, onApplyDescription,
+  onAnalyze, analyzing, analysis, analysisError, onApplyDescription, onPriceThis,
 }) => {
   if (!product) return null;
   const currency = product.currency || 'USD';
@@ -454,6 +463,9 @@ const ProductDetailModal = ({
               {adding ? (<><span className="dsh-spinner" /> Adding...</>) : product._added ? '✓ Added' : '✓ Add to Shop'}
             </button>
           )}
+          {onPriceThis && (
+            <button className="dsh-btn dsh-btn--ghost" onClick={onPriceThis}>💰 Price This</button>
+          )}
           <button className="dsh-btn dsh-btn--ghost" onClick={onClose} disabled={adding}>Close</button>
         </div>
       </div>
@@ -532,6 +544,87 @@ const PriceHistoryModal = ({ modal, loading, onClose }) => {
   );
 };
 
+const PricingHistoryModal = ({ modal, loading, onClose, onExport }) => {
+  if (!modal) return null;
+  const { product, data, error } = modal;
+  const entries = data?.entries || [];
+  const currency = product.currency || 'USD';
+  const chartData = entries.map(e => ({
+    date: new Date(e.created_at).toLocaleDateString(),
+    cost: e.cost_price,
+    suggested: e.suggested_price,
+    applied: e.applied_price,
+  }));
+
+  return (
+    <div className="dsh-modal-back" onClick={onClose}>
+      <div className="dsh-modal dsh-pricing-history-modal" onClick={e => e.stopPropagation()}>
+        <h3>💰 Pricing History</h3>
+        <p className="dsh-price-history-product" title={product.name}>{product.name}</p>
+
+        {loading ? (
+          <div className="dsh-ai-loading"><span className="dsh-spinner" /> Loading pricing history...</div>
+        ) : error ? (
+          <div className="dsh-ai-error">⚠️ {error}</div>
+        ) : entries.length === 0 ? (
+          <div className="dsh-empty-state" style={{ border: 'none', background: 'transparent', padding: '20px 0' }}>
+            <div className="dsh-empty-icon">💰</div>
+            <h3 className="dsh-empty-title">No Pricing History</h3>
+            <p className="dsh-empty-subtitle">Run a pricing analysis for this product to start building history</p>
+          </div>
+        ) : (
+          <>
+            <ResponsiveContainer width="100%" height={220}>
+              <LineChart data={chartData}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="date" />
+                <YAxis domain={['auto', 'auto']} />
+                <Tooltip />
+                <Legend />
+                <Line type="monotone" dataKey="cost" name="Cost" stroke="#9CA3AF" strokeWidth={2} dot={{ r: 3 }} />
+                <Line type="monotone" dataKey="suggested" name="Suggested" stroke="#4A7FD6" strokeWidth={2} dot={{ r: 3 }} />
+                <Line type="monotone" dataKey="applied" name="Applied" stroke="#D4AF37" strokeWidth={2} dot={{ r: 3 }} />
+              </LineChart>
+            </ResponsiveContainer>
+
+            <div className="dsh-pricing-history-table-wrap">
+              <table className="dsh-pricing-history-table">
+                <thead>
+                  <tr>
+                    <th>Date</th>
+                    <th>Cost</th>
+                    <th>Suggested</th>
+                    <th>Applied</th>
+                    <th>Margin</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {[...entries].reverse().map(e => (
+                    <tr key={e.id}>
+                      <td>{new Date(e.created_at).toLocaleDateString()}</td>
+                      <td>{currency} {Number(e.cost_price).toFixed(2)}</td>
+                      <td>{e.suggested_price != null ? `${currency} ${Number(e.suggested_price).toFixed(2)}` : '—'}</td>
+                      <td>{e.applied_price != null ? `${currency} ${Number(e.applied_price).toFixed(2)}` : '—'}</td>
+                      <td>{e.profit_margin != null ? `${Number(e.profit_margin).toFixed(1)}%` : '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
+        )}
+
+        <div className="dsh-settings-actions">
+          {entries.length > 0 && (
+            <button className="dsh-btn dsh-btn--ghost" onClick={onExport}>⬇ Export</button>
+          )}
+          <button className="dsh-btn dsh-btn--ghost" onClick={onClose}>Close</button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 function Dashboard({ user, onLogout }) {
   const [appSettings, setAppSettings] = useState(loadSettings);
   const [settingsDraft, setSettingsDraft] = useState(appSettings);
@@ -602,6 +695,18 @@ function Dashboard({ user, onLogout }) {
   const [selectedProductIds, setSelectedProductIds] = useState({});
   const [bulkDeleting, setBulkDeleting] = useState(false);
   const [deletingProductId, setDeletingProductId] = useState(null);
+
+  const [pricingSearch, setPricingSearch] = useState('');
+  const [pricingSelectedProduct, setPricingSelectedProduct] = useState(null);
+  const [pricingCostPrice, setPricingCostPrice] = useState('');
+  const [pricingPlatform, setPricingPlatform] = useState('aliexpress');
+  const [pricingMargin, setPricingMargin] = useState(100);
+  const [pricingLoading, setPricingLoading] = useState(false);
+  const [pricingResult, setPricingResult] = useState(null);
+  const [pricingError, setPricingError] = useState(null);
+  const [pricingApplying, setPricingApplying] = useState(false);
+  const [pricingHistoryModal, setPricingHistoryModal] = useState(null);
+  const [pricingHistoryLoading, setPricingHistoryLoading] = useState(false);
 
   const [platforms, setPlatforms] = useState([]);
   const [platformsLoading, setPlatformsLoading] = useState(true);
@@ -837,6 +942,13 @@ function Dashboard({ user, onLogout }) {
       case 'newest': default: return 0;
     }
   });
+
+  const pricingSearchResults = pricingSearch.trim()
+    ? myProducts.filter(p => {
+        const q = pricingSearch.trim().toLowerCase();
+        return (p.name || '').toLowerCase().includes(q) || (p.url || '').toLowerCase().includes(q);
+      })
+    : myProducts;
 
   const MY_PRODUCTS_PAGE_SIZE = 20;
   const filteredMyProducts = myProducts.filter(p => {
@@ -1173,7 +1285,7 @@ function Dashboard({ user, onLogout }) {
     }
   }, [showToast]);
 
-  useEffect(() => { if (page === 'myproducts') fetchMyProducts(); }, [page, fetchMyProducts]);
+  useEffect(() => { if (page === 'myproducts' || page === 'pricing') fetchMyProducts(); }, [page, fetchMyProducts]);
 
   const applyAiDescription = useCallback(async () => {
     if (!productModal?.product || !aiAnalysis?.description) return;
@@ -1267,6 +1379,141 @@ function Dashboard({ user, onLogout }) {
       setBulkDeleting(false);
     }
   }, [selectedProductIds, showToast, fetchMyProducts]);
+
+  const selectPricingProduct = (product) => {
+    setPricingSelectedProduct(product);
+    setPricingCostPrice(product.price != null ? String(product.price) : '');
+    setPricingPlatform(product.platform || 'aliexpress');
+    setPricingResult(null);
+    setPricingError(null);
+  };
+
+  const clearPricingProduct = () => {
+    setPricingSelectedProduct(null);
+    setPricingCostPrice('');
+    setPricingResult(null);
+    setPricingError(null);
+  };
+
+  const goToPricingFor = (product) => {
+    selectPricingProduct(product);
+    setPage('pricing');
+  };
+
+  const analyzePricing = async () => {
+    const costPriceNum = Number(pricingCostPrice);
+    if (!pricingCostPrice || Number.isNaN(costPriceNum) || costPriceNum <= 0) {
+      showToast('Enter a valid cost price', 'warning');
+      return;
+    }
+    setPricingLoading(true);
+    setPricingError(null);
+    setPricingResult(null);
+    const marginOption = MARGIN_OPTIONS.find(m => m.value === pricingMargin) || MARGIN_OPTIONS[1];
+
+    // /api/pricing/analyze only supports a saved product's own stored price as the cost
+    // basis; if the cost-price field still matches that stored price, use it directly —
+    // otherwise (edited cost, or an ad-hoc unsaved product) use /suggest-price, which
+    // accepts an explicit cost_price override.
+    const usingStoredCost = pricingSelectedProduct && costPriceNum === Number(pricingSelectedProduct.price);
+    const endpoint = usingStoredCost ? 'analyze' : 'suggest-price';
+    const body = usingStoredCost
+      ? { product_id: pricingSelectedProduct.id, strategy: marginOption.strategy, platform: pricingPlatform }
+      : {
+          product_id: pricingSelectedProduct?.id ?? null,
+          product_name: pricingSelectedProduct?.name || pricingSearch.trim() || 'Unnamed product',
+          cost_price: costPriceNum,
+          platform: pricingPlatform,
+          strategy: marginOption.strategy,
+        };
+
+    try {
+      const res = await fetch(`${RESEARCH_API_URL}/pricing/${endpoint}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) {
+        const errBody = await res.json().catch(() => ({}));
+        throw new Error(errBody.detail || `HTTP ${res.status}`);
+      }
+      const data = await res.json();
+      setPricingResult(data);
+    } catch (err) {
+      setPricingError(err.message || 'Could not analyze pricing');
+      showToast('Could not analyze pricing — check that the Pricing Agent is reachable', 'error');
+    } finally {
+      setPricingLoading(false);
+    }
+  };
+
+  const applyPricingSuggestion = async () => {
+    if (!pricingSelectedProduct || !pricingResult) return;
+    setPricingApplying(true);
+    try {
+      const res = await fetch(`${RESEARCH_API_URL}/pricing/bulk-apply`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          items: [{ product_id: pricingSelectedProduct.id, applied_price: pricingResult.suggested_price }],
+        }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      const itemResult = data.results?.[0];
+      if (!itemResult?.success) throw new Error(itemResult?.message || 'Failed to apply price');
+
+      showToast(`Price applied — $${pricingResult.suggested_price.toFixed(2)}`, 'success');
+      addNotification('success', `Applied new price ${pricingSelectedProduct.currency || 'USD'} ${pricingResult.suggested_price.toFixed(2)} to "${pricingSelectedProduct.name}"`);
+      setPricingSelectedProduct(prev => (prev ? { ...prev, price: pricingResult.suggested_price } : prev));
+      fetchMyProducts();
+    } catch (err) {
+      showToast(err.message || 'Could not apply price', 'error');
+    } finally {
+      setPricingApplying(false);
+    }
+  };
+
+  const saveForLater = () => {
+    showToast('Suggestion saved to Pricing History for later use', 'success');
+  };
+
+  const openPricingHistoryModal = async (product) => {
+    setPricingHistoryModal({ product, data: null, error: null });
+    setPricingHistoryLoading(true);
+    try {
+      const res = await fetch(`${RESEARCH_API_URL}/pricing/history/${product.id}`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      setPricingHistoryModal({ product, data, error: null });
+    } catch {
+      setPricingHistoryModal({ product, data: null, error: 'Could not load pricing history' });
+      showToast('Could not load pricing history', 'error');
+    } finally {
+      setPricingHistoryLoading(false);
+    }
+  };
+
+  const exportPricingHistory = () => {
+    const entries = pricingHistoryModal?.data?.entries || [];
+    if (entries.length === 0) {
+      showToast('No pricing history to export', 'warning');
+      return;
+    }
+    const rows = [
+      ['Date', 'Cost Price', 'Suggested Price', 'Applied Price', 'Margin %', 'Strategy'],
+      ...entries.map(e => [
+        new Date(e.created_at).toLocaleString(),
+        e.cost_price ?? '',
+        e.suggested_price ?? '',
+        e.applied_price ?? '',
+        e.profit_margin ?? '',
+        e.strategy ?? '',
+      ]),
+    ];
+    const csv = rows.map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(',')).join('\n');
+    downloadBlob('﻿' + csv, 'text/csv', `pricing-history-${pricingHistoryModal.product.id}.csv`);
+  };
 
   const generateReport = useCallback(async () => {
     setReportLoading(true);
@@ -1404,6 +1651,7 @@ const deselectAllAgents = useCallback(() => {
     { id: 'analytics', icon: '📊', label: 'Analytics' },
     { id: 'research', icon: '📦', label: t.productsResearch },
     { id: 'myproducts', icon: '🛍️', label: 'My Products' },
+    { id: 'pricing', icon: '💰', label: 'Pricing' },
     { id: 'platforms', icon: '⚙️', label: t.platformSettings },
     { id: 'usersettings', icon: '⚙️', label: 'Settings' },
   ];
@@ -1415,10 +1663,11 @@ const deselectAllAgents = useCallback(() => {
     if (exportModalOpen) { setExportModalOpen(false); return; }
     if (reportModal) { setReportModal(null); return; }
     if (priceHistoryModal) { setPriceHistoryModal(null); return; }
+    if (pricingHistoryModal) { setPricingHistoryModal(null); return; }
     if (productModal) { closeProductModal(); return; }
     if (editingPlatform) { setEditingPlatform(null); return; }
     if (settingsAgent) { setSettingsAgent(null); return; }
-  }, [logoutConfirmOpen, shortcutsModalOpen, notifCenterOpen, exportModalOpen, reportModal, priceHistoryModal, productModal, editingPlatform, settingsAgent, closeProductModal]);
+  }, [logoutConfirmOpen, shortcutsModalOpen, notifCenterOpen, exportModalOpen, reportModal, priceHistoryModal, pricingHistoryModal, productModal, editingPlatform, settingsAgent, closeProductModal]);
 
   useEffect(() => {
     const handler = (e) => {
@@ -2143,6 +2392,13 @@ const deselectAllAgents = useCallback(() => {
                                 📈
                               </button>
                               <button
+                                className="dsh-agent-btn dsh-agent-btn--settings dsh-agent-btn--icon"
+                                title="Price This"
+                                onClick={() => goToPricingFor(p)}
+                              >
+                                💰
+                              </button>
+                              <button
                                 className="dsh-agent-btn dsh-agent-btn--pause dsh-agent-btn--icon"
                                 title="Delete"
                                 onClick={() => deleteSavedProduct(p.id)}
@@ -2180,6 +2436,226 @@ const deselectAllAgents = useCallback(() => {
                   </div>
                 )}
               </>
+            )}
+          </section>
+        )}
+
+        {page === 'pricing' && (
+          <section className="dsh-section">
+            <div className="dsh-section-head">
+              <h2>💰 Pricing</h2>
+              <button className="dsh-btn dsh-btn--ghost" onClick={() => setPage('myproducts')}>← Back to Products</button>
+            </div>
+
+            {!pricingSelectedProduct ? (
+              <div className="dsh-pricing-selector">
+                <input
+                  className="dsh-input dsh-pricing-search-input"
+                  placeholder="Enter product URL or name"
+                  value={pricingSearch}
+                  onChange={e => setPricingSearch(e.target.value)}
+                />
+                {pricingSearchResults.length === 0 ? (
+                  <EmptyState
+                    icon="🔍"
+                    title="No Matching Products"
+                    subtitle="No saved products match that search — you can still price it as a new item below"
+                  />
+                ) : (
+                  <div className="dsh-pricing-product-list">
+                    {pricingSearchResults.slice(0, 8).map(p => (
+                      <div key={p.id} className="dsh-pricing-product-item" onClick={() => selectPricingProduct(p)}>
+                        <div className="dsh-pricing-product-thumb">
+                          {p.image_url ? (
+                            <img src={p.image_url} alt={p.name} onError={e => { e.target.style.display = 'none'; }} />
+                          ) : (
+                            <span>📦</span>
+                          )}
+                        </div>
+                        <div className="dsh-pricing-product-info">
+                          <div className="dsh-pricing-product-name" title={p.name}>{p.name}</div>
+                          <div className="dsh-pricing-product-meta">
+                            <span className="dsh-badge dsh-badge--off">{p.platform}</span>
+                            <span>{p.price != null ? `${p.currency || 'USD'} ${Number(p.price).toFixed(2)}` : 'No price'}</span>
+                          </div>
+                        </div>
+                        <span className="dsh-pricing-product-arrow">›</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="dsh-pricing-selected-card">
+                <div className="dsh-pricing-selected-thumb">
+                  {pricingSelectedProduct.image_url ? (
+                    <img
+                      src={pricingSelectedProduct.image_url}
+                      alt={pricingSelectedProduct.name}
+                      onError={e => { e.target.style.display = 'none'; }}
+                    />
+                  ) : (
+                    <span>📦</span>
+                  )}
+                </div>
+                <div className="dsh-pricing-selected-info">
+                  <div className="dsh-pricing-selected-name">{pricingSelectedProduct.name}</div>
+                  <div className="dsh-pricing-selected-meta">
+                    <span className="dsh-badge dsh-badge--off">{pricingSelectedProduct.platform}</span>
+                    <span>
+                      Current price: {pricingSelectedProduct.price != null
+                        ? `${pricingSelectedProduct.currency || 'USD'} ${Number(pricingSelectedProduct.price).toFixed(2)}`
+                        : '—'}
+                    </span>
+                  </div>
+                </div>
+                <div className="dsh-pricing-selected-actions">
+                  <button className="dsh-btn dsh-btn--ghost" onClick={() => openPricingHistoryModal(pricingSelectedProduct)}>
+                    📈 View Pricing History
+                  </button>
+                  <button className="dsh-btn dsh-btn--ghost" onClick={clearPricingProduct}>Change Product</button>
+                </div>
+              </div>
+            )}
+
+            <div className="dsh-pricing-inputs">
+              <div className="dsh-pricing-field">
+                <label>Cost Price</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  className="dsh-input"
+                  placeholder="0.00"
+                  value={pricingCostPrice}
+                  onChange={e => setPricingCostPrice(e.target.value)}
+                />
+              </div>
+
+              <div className="dsh-pricing-field">
+                <label>Platform</label>
+                <div className="dsh-pill-toggle-group">
+                  {RESEARCH_PLATFORMS.map(p => (
+                    <button
+                      key={p.id}
+                      type="button"
+                      className={`dsh-pill-toggle ${pricingPlatform === p.id ? 'dsh-pill-toggle--active' : ''}`}
+                      onClick={() => setPricingPlatform(p.id)}
+                    >
+                      {p.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="dsh-pricing-field">
+                <label>Profit Margin %</label>
+                <div className="dsh-pill-toggle-group">
+                  {MARGIN_OPTIONS.map(opt => (
+                    <button
+                      key={opt.value}
+                      type="button"
+                      className={`dsh-pill-toggle dsh-margin-toggle-btn ${pricingMargin === opt.value ? 'dsh-pill-toggle--active' : ''}`}
+                      onClick={() => setPricingMargin(opt.value)}
+                    >
+                      {opt.label}
+                      <span className="dsh-margin-toggle-sub">{STRATEGY_LABELS[opt.strategy]}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <button
+                className="dsh-btn dsh-btn--primary dsh-pricing-analyze-btn"
+                onClick={analyzePricing}
+                disabled={pricingLoading || !pricingCostPrice}
+              >
+                {pricingLoading ? (<><span className="dsh-spinner" /> Analyzing...</>) : '✨ Analyze & Get Suggestion'}
+              </button>
+            </div>
+
+            {pricingError && !pricingLoading && (
+              <div className="dsh-ai-error">⚠️ {pricingError}</div>
+            )}
+
+            {pricingResult && !pricingLoading && (
+              <div className="dsh-pricing-results">
+                <div className="dsh-pricing-compare">
+                  <div className="dsh-pricing-compare-item">
+                    <span className="dsh-pricing-compare-label">
+                      {pricingSelectedProduct ? 'Current Price' : 'Cost Price'}
+                    </span>
+                    <span className="dsh-pricing-compare-value">
+                      ${Number(pricingSelectedProduct?.price ?? pricingResult.cost_price).toFixed(2)}
+                    </span>
+                  </div>
+                  <div className="dsh-pricing-compare-arrow">→</div>
+                  <div className="dsh-pricing-compare-item dsh-pricing-compare-item--suggested">
+                    <span className="dsh-pricing-compare-label">Suggested Price</span>
+                    <span className="dsh-pricing-compare-value dsh-pricing-compare-value--gold">
+                      ${Number(pricingResult.suggested_price).toFixed(2)}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="dsh-pricing-margin-display">
+                  <span className="dsh-pricing-margin-label">Profit Margin</span>
+                  <span className="dsh-pricing-margin-value">{Number(pricingResult.profit_margin_percent).toFixed(1)}%</span>
+                </div>
+
+                <div className="dsh-pricing-stats-grid">
+                  <div className="dsh-pricing-stat">
+                    <span className="dsh-pricing-stat-label">Recommended Range</span>
+                    <span className="dsh-pricing-stat-value">
+                      ${Number(pricingResult.price_range.min).toFixed(2)} – ${Number(pricingResult.price_range.max).toFixed(2)}
+                    </span>
+                  </div>
+                  <div className="dsh-pricing-stat">
+                    <span className="dsh-pricing-stat-label">Competitor Avg</span>
+                    <span className="dsh-pricing-stat-value">
+                      {pricingResult.competitor_prices.avg != null ? `$${Number(pricingResult.competitor_prices.avg).toFixed(2)}` : 'No data'}
+                    </span>
+                    {pricingResult.competitor_prices.avg != null && (
+                      <span className="dsh-pricing-stat-sub">
+                        ${Number(pricingResult.competitor_prices.min).toFixed(2)} – ${Number(pricingResult.competitor_prices.max).toFixed(2)}
+                        {' · '}{pricingResult.competitor_prices.sample_size} similar
+                      </span>
+                    )}
+                  </div>
+                  <div className="dsh-pricing-stat">
+                    <span className="dsh-pricing-stat-label">Strategy</span>
+                    <span className={`dsh-strategy-badge dsh-strategy-badge--${pricingResult.strategy}`}>
+                      {STRATEGY_LABELS[pricingResult.strategy] || pricingResult.strategy}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="dsh-pricing-ai-box">
+                  <div className="dsh-pricing-ai-box-header">✨ AI Recommendation</div>
+                  <p>{pricingResult.ai_recommendation}</p>
+                </div>
+
+                {pricingResult.warnings.length > 0 && (
+                  <div className="dsh-pricing-warnings">
+                    {pricingResult.warnings.map((w, i) => (
+                      <div key={i} className="dsh-pricing-warning-item">⚠️ {w}</div>
+                    ))}
+                  </div>
+                )}
+
+                <div className="dsh-pricing-actions">
+                  <button
+                    className="dsh-btn dsh-btn--primary"
+                    onClick={applyPricingSuggestion}
+                    disabled={!pricingSelectedProduct || pricingApplying}
+                    title={!pricingSelectedProduct ? 'Select a saved product to apply a price' : undefined}
+                  >
+                    {pricingApplying ? (<><span className="dsh-spinner" /> Applying...</>) : '✓ Apply This Price'}
+                  </button>
+                  <button className="dsh-btn dsh-btn--ghost" onClick={saveForLater}>🔖 Save for Later</button>
+                  <button className="dsh-btn dsh-btn--ghost" onClick={() => setPage('myproducts')}>← Back to Products</button>
+                </div>
+              </div>
             )}
           </section>
         )}
@@ -2645,6 +3121,7 @@ const deselectAllAgents = useCallback(() => {
           analysis={aiAnalysis}
           analysisError={aiAnalysisError}
           onApplyDescription={aiAnalysis?.description ? applyAiDescription : undefined}
+          onPriceThis={productModal.mode === 'saved' ? () => { closeProductModal(); goToPricingFor(productModal.product); } : undefined}
         />
       )}
 
@@ -2653,6 +3130,15 @@ const deselectAllAgents = useCallback(() => {
           modal={priceHistoryModal}
           loading={priceHistoryLoading}
           onClose={() => setPriceHistoryModal(null)}
+        />
+      )}
+
+      {pricingHistoryModal && (
+        <PricingHistoryModal
+          modal={pricingHistoryModal}
+          loading={pricingHistoryLoading}
+          onClose={() => setPricingHistoryModal(null)}
+          onExport={exportPricingHistory}
         />
       )}
 
