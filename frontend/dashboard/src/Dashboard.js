@@ -1367,6 +1367,15 @@ function Dashboard({ user, onLogout }) {
     if (savedProducts.length === 0) fetchSavedProducts();
   }, [page, refreshShopifyPage, fetchSavedProducts, savedProducts.length]);
 
+  // The header's welcome message shows live stats regardless of which page is open,
+  // so load them once at startup rather than only when the Product Management/Shopify
+  // Sync tabs are visited.
+  useEffect(() => {
+    fetchDashboardStats();
+    fetchShopifyStats();
+    fetchSchedulerStatus();
+  }, [fetchDashboardStats, fetchShopifyStats, fetchSchedulerStatus]);
+
   const connectShopify = useCallback(async () => {
     setShopifyConnecting(true);
     try {
@@ -1594,6 +1603,38 @@ const deselectAllAgents = useCallback(() => {
     return <span className={`dsh-badge ${cls}`}><span className="dsh-dot" />{t[st] || st}</span>;
   };
 
+  const displayName = (appSettings.displayName || '').trim() || user?.name || 'there';
+
+  const hourOfDay = new Date().getHours();
+  const greeting = hourOfDay >= 6 && hourOfDay < 12
+    ? { text: 'Good Morning', emoji: '☀️' }
+    : hourOfDay >= 12 && hourOfDay < 18
+      ? { text: 'Good Afternoon', emoji: '🌤️' }
+      : { text: 'Good Evening', emoji: '🌙' };
+
+  const headerDescription = (() => {
+    const parts = [];
+    if (dashboardStats) {
+      parts.push(`${dashboardStats.total_products} product${dashboardStats.total_products === 1 ? '' : 's'} live`);
+    }
+    if (dashboardStats && shopifyStats) {
+      const readyToSync = Math.max(dashboardStats.total_products - shopifyStats.products_synced, 0);
+      if (readyToSync > 0) parts.push(`${readyToSync} ready to sync to Shopify`);
+    }
+    if (profits.weekly != null) {
+      parts.push(`$${profits.weekly.toLocaleString()} in revenue this week`);
+    }
+    if (parts.length === 0) {
+      return "Ready to manage your e-commerce empire? Let's grow your business today.";
+    }
+    let sentence = `Here's your snapshot: ${parts.join(' • ')}.`;
+    if (schedulerConfig?.enabled && schedulerConfig.next_run_at) {
+      const hoursUntilNextSync = Math.round((new Date(schedulerConfig.next_run_at).getTime() - Date.now()) / 3600000);
+      sentence += ` Next auto-sync in ${hoursUntilNextSync > 0 ? `${hoursUntilNextSync}h` : 'under an hour'}.`;
+    }
+    return sentence;
+  })();
+
   const NAV = [
     { id: 'dashboard', icon: '◈', label: t.dashboard },
     { id: 'agents', icon: '🤖', label: t.agents },
@@ -1796,8 +1837,10 @@ const deselectAllAgents = useCallback(() => {
       <main className="dsh-main">
         <header className="dsh-header">
           <div>
-            <h1 className="dsh-title">{t.welcome} 👋</h1>
-            <p className="dsh-sub">{t.overview}</p>
+            <h1 className="dsh-title dsh-title--animated" key={displayName}>
+              {greeting.text}, <span className="dsh-title-name">{displayName}</span> {greeting.emoji}
+            </h1>
+            <p className="dsh-sub dsh-sub--animated" key={headerDescription}>{headerDescription}</p>
           </div>
           <div className="dsh-header-actions">
             <label className="dsh-switch">

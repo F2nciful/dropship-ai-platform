@@ -377,7 +377,11 @@
 }
 
 .dsh-title { margin: 0; font-size: clamp(20px, 3vw, 28px); font-weight: 700; }
-.dsh-sub { margin: 6px 0 0; color: var(--text2); font-size: 14.5px; }
+.dsh-sub { margin: 6px 0 0; color: var(--text2); font-size: 14.5px; max-width: 60ch; }
+
+.dsh-title-name { color: var(--purple-text); font-weight: 800; }
+
+.dsh-title--animated, .dsh-sub--animated { animation: dshFadeUp 0.4s ease both; }
 
 .dsh-header-actions { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
 
