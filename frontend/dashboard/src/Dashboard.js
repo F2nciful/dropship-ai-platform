@@ -446,6 +446,9 @@ function Dashboard({ user, onLogout }) {
   const [researchSearched, setResearchSearched] = useState(false);
   const [researchResults, setResearchResults] = useState([]);
   const [researchError, setResearchError] = useState(null);
+  // Per-platform errors from the last search response (e.g. "amazon: Platform is inactive") —
+  // surfaced inline instead of a generic "No Products Found" when they're the reason for 0 results.
+  const [researchApiErrors, setResearchApiErrors] = useState({});
   const [researchPage, setResearchPage] = useState(1);
   const [researchPageSize, setResearchPageSize] = useState(50);
   const [researchTotalPages, setResearchTotalPages] = useState(1);
@@ -701,41 +704,58 @@ function Dashboard({ user, onLogout }) {
 
     setResearchLoading(true);
     setResearchError(null);
+    setResearchApiErrors({});
     setResearchSearched(true);
+
+    const requestBody = {
+      query: researchQuery.trim(),
+      search_scope: researchScope,
+      platforms: selectedPlatforms,
+      max_results: appSettings.defaultMaxResults,
+      page: pageToFetch,
+      page_size: pageSizeToUse,
+      sort_by: sortBy || null,
+      min_price: priceMin !== '' ? Number(priceMin) : null,
+      max_price: priceMax !== '' ? Number(priceMax) : null,
+      min_rating: minRating > 0 ? minRating : null,
+      in_stock_only: inStockOnly,
+    };
 
     try {
       const res = await fetch(`${RESEARCH_API_URL}/search-products`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          query: researchQuery.trim(),
-          search_scope: researchScope,
-          platforms: selectedPlatforms,
-          max_results: appSettings.defaultMaxResults,
-          page: pageToFetch,
-          page_size: pageSizeToUse,
-          sort_by: sortBy || null,
-          min_price: priceMin !== '' ? Number(priceMin) : null,
-          max_price: priceMax !== '' ? Number(priceMax) : null,
-          min_rating: minRating > 0 ? minRating : null,
-          in_stock_only: inStockOnly,
-        }),
+        body: JSON.stringify(requestBody),
       });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      if (!res.ok) {
+        let detail = `HTTP ${res.status}`;
+        try {
+          const errBody = await res.json();
+          detail = errBody.detail || detail;
+        } catch { /* response body wasn't JSON */ }
+        console.error('[Products Research] search-products failed', { status: res.status, detail, requestBody });
+        throw new Error(detail);
+      }
       const data = await res.json();
       const results = data.results || [];
+      const errors = data.errors || {};
       setResearchResults(results);
+      setResearchApiErrors(errors);
       setResearchPage(data.current_page || 1);
       setResearchTotalPages(data.total_pages || 1);
       setResearchTotalResults(data.total_results || 0);
       setResearchPageInput(String(data.current_page || 1));
-      if (results.length === 0) showToast(t.noProductsFound, 'info');
-      const failedPlatforms = Object.keys(data.errors || {});
-      if (failedPlatforms.length > 0) {
-        addNotification('error', `Search failed on ${failedPlatforms.join(', ')}: ${data.errors[failedPlatforms[0]]}`);
+      if (Object.keys(errors).length > 0) {
+        console.warn('[Products Research] per-platform search errors', errors);
       }
-    } catch {
-      setResearchError(t.reachFailed);
+      if (results.length === 0) showToast(t.noProductsFound, 'info');
+      const failedPlatforms = Object.keys(errors);
+      if (failedPlatforms.length > 0) {
+        addNotification('error', `Search failed on ${failedPlatforms.join(', ')}: ${errors[failedPlatforms[0]]}`);
+      }
+    } catch (err) {
+      console.error('[Products Research] search-products request threw', err, { requestBody });
+      setResearchError(err.message || t.reachFailed);
       setResearchResults([]);
       setResearchTotalPages(1);
       setResearchTotalResults(0);
@@ -1624,6 +1644,9 @@ function Dashboard({ user, onLogout }) {
         <div className="dsh-logo">
           <span className="dsh-logo-mark">◆</span>
           <span className="dsh-logo-text">Nexus</span>
+          <button className="dsh-icon-btn dsh-logo-theme-toggle" onClick={() => setDark(!dark)} title="Toggle theme">
+            {dark ? '☀️' : '🌙'}
+          </button>
         </div>
 
         <button
@@ -1665,49 +1688,46 @@ function Dashboard({ user, onLogout }) {
             </h1>
             <p className="dsh-sub dsh-sub--animated" key={headerDescription}>{headerDescription}</p>
           </div>
-          <div className="dsh-header-actions">
-            <button className="dsh-icon-btn" onClick={() => setDark(!dark)} title="Toggle theme">
-              {dark ? '☀️' : '🌙'}
-            </button>
-          </div>
         </header>
 
-        <section className="dsh-stats">
-          {loading ? (
-            [0, 1, 2, 3].map(i => <SkeletonStat key={i} />)
-          ) : (
-            <>
-              <div className="dsh-stat dsh-stat--purple">
-                <span className="dsh-stat-icon">🤖</span>
-                <div>
-                  <div className="dsh-stat-num">{agents.length}</div>
-                  <div className="dsh-stat-label">{t.totalAgents}</div>
+        {page === 'dashboard' && (
+          <section className="dsh-stats">
+            {loading ? (
+              [0, 1, 2, 3].map(i => <SkeletonStat key={i} />)
+            ) : (
+              <>
+                <div className="dsh-stat dsh-stat--purple">
+                  <span className="dsh-stat-icon">🤖</span>
+                  <div>
+                    <div className="dsh-stat-num">{agents.length}</div>
+                    <div className="dsh-stat-label">{t.totalAgents}</div>
+                  </div>
                 </div>
-              </div>
-              <div className="dsh-stat dsh-stat--green">
-                <span className="dsh-stat-icon">⚡</span>
-                <div>
-                  <div className="dsh-stat-num">{activeCount}</div>
-                  <div className="dsh-stat-label">{t.activeAgents}</div>
+                <div className="dsh-stat dsh-stat--green">
+                  <span className="dsh-stat-icon">⚡</span>
+                  <div>
+                    <div className="dsh-stat-num">{activeCount}</div>
+                    <div className="dsh-stat-label">{t.activeAgents}</div>
+                  </div>
                 </div>
-              </div>
-              <div className="dsh-stat dsh-stat--blue">
-                <span className="dsh-stat-icon">📋</span>
-                <div>
-                  <div className="dsh-stat-num">{tasks.length}</div>
-                  <div className="dsh-stat-label">{t.totalTasks}</div>
+                <div className="dsh-stat dsh-stat--blue">
+                  <span className="dsh-stat-icon">📋</span>
+                  <div>
+                    <div className="dsh-stat-num">{tasks.length}</div>
+                    <div className="dsh-stat-label">{t.totalTasks}</div>
+                  </div>
                 </div>
-              </div>
-              <div className="dsh-stat dsh-stat--gold">
-                <span className="dsh-stat-icon">✅</span>
-                <div>
-                  <div className="dsh-stat-num">{doneTasks}</div>
-                  <div className="dsh-stat-label">{t.completedTasks}</div>
+                <div className="dsh-stat dsh-stat--gold">
+                  <span className="dsh-stat-icon">✅</span>
+                  <div>
+                    <div className="dsh-stat-num">{doneTasks}</div>
+                    <div className="dsh-stat-label">{t.completedTasks}</div>
+                  </div>
                 </div>
-              </div>
-            </>
-          )}
-        </section>
+              </>
+            )}
+          </section>
+        )}
 
         {(page === 'dashboard') && (
           <section className="dsh-section">
@@ -1899,11 +1919,18 @@ function Dashboard({ user, onLogout }) {
               <EmptyState
                 icon="⚠️"
                 title={t.searchFailedTitle}
-                subtitle={t.searchFailedSub}
+                subtitle={researchError || t.searchFailedSub}
                 action={<button className="dsh-btn dsh-btn--primary" onClick={searchResearchProducts}>⟳ {t.retry}</button>}
               />
             ) : !researchSearched ? (
               <EmptyState icon="📦" title={t.searchPromptTitle} subtitle={t.searchPromptSub} />
+            ) : researchResults.length === 0 && Object.keys(researchApiErrors).length > 0 ? (
+              <EmptyState
+                icon="⚠️"
+                title="Search Completed With Errors"
+                subtitle={Object.entries(researchApiErrors).map(([p, msg]) => `${platformLabel(p)}: ${msg}`).join('  •  ')}
+                action={<button className="dsh-btn dsh-btn--primary" onClick={searchResearchProducts}>⟳ {t.retry}</button>}
+              />
             ) : researchResults.length === 0 ? (
               <EmptyState
                 icon="🔍"

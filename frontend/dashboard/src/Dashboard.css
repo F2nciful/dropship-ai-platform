@@ -87,6 +87,13 @@
 
 .dsh-logo-text { flex: 1; }
 
+.dsh-logo-theme-toggle {
+  width: 34px;
+  height: 34px;
+  font-size: 14px;
+  flex-shrink: 0;
+}
+
 /* The sidebar (position: sticky) creates its own stacking context, so the notification
    trigger lives there but the overlay/panel render as top-level siblings of it instead —
    otherwise their z-index would be capped inside the sidebar's stacking context and the
