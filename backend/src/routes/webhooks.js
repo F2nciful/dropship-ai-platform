@@ -10,7 +10,7 @@ router.get('/', (req, res) => {
   res.json({ success: true, webhooks });
 });
 
-router.post('/', (req, res) => {
+function registerWebhook(req, res) {
   const { url, eventTypes } = req.body;
   if (!url) {
     return res.status(400).json({ success: false, message: 'url is required' });
@@ -19,7 +19,12 @@ router.post('/', (req, res) => {
     .prepare('INSERT INTO webhooks (user_id, url, event_types) VALUES (?, ?, ?)')
     .run(req.user.id, url, JSON.stringify(eventTypes && eventTypes.length ? eventTypes : ['*']));
   res.status(201).json({ success: true, id: result.lastInsertRowid });
-});
+}
+
+router.post('/', registerWebhook);
+// Same handler, exact path from spec — kept as an alias so the existing Settings UI (which
+// already calls POST /) doesn't need to change alongside it.
+router.post('/register', registerWebhook);
 
 router.delete('/:id', (req, res) => {
   const result = db

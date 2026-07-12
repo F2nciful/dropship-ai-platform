@@ -62,7 +62,11 @@ const AUTO_REFRESH_OPTIONS = [
   { value: 0, label: 'Off' },
 ];
 
-const NOTIF_ICONS = { success: '✓', info: 'ℹ', warning: '⚠', error: '✕' };
+const NOTIF_ICONS = {
+  success: '✓', info: 'ℹ', warning: '⚠', error: '✕',
+  product_added: '📦', search_complete: '🔍', limit_reached: '📈',
+  upgrade_successful: '🎉', error_alert: '⚠️',
+};
 
 const EXPORT_COLUMNS = [
   { key: 'name', label: 'Name' },
@@ -111,15 +115,6 @@ function loadSettings() {
     return saved ? { ...DEFAULT_SETTINGS, ...saved } : { ...DEFAULT_SETTINGS };
   } catch {
     return { ...DEFAULT_SETTINGS };
-  }
-}
-
-function loadNotifications() {
-  try {
-    const saved = JSON.parse(localStorage.getItem('dsh-notifications') || '[]');
-    return Array.isArray(saved) ? saved : [];
-  } catch {
-    return [];
   }
 }
 
@@ -458,19 +453,30 @@ function Dashboard({ user, onLogout }) {
   const [usageInfo, setUsageInfo] = useState(null);
   const [billingPlans, setBillingPlans] = useState([]);
   const [adminUsers, setAdminUsers] = useState([]);
+  const [adminUserTotal, setAdminUserTotal] = useState(0);
+  const [adminUserSearch, setAdminUserSearch] = useState('');
+  const [adminSortBy, setAdminSortBy] = useState('name');
+  const [adminSortDir, setAdminSortDir] = useState('asc');
   const [adminStats, setAdminStats] = useState(null);
   const [adminHealth, setAdminHealth] = useState(null);
   const [adminLogs, setAdminLogs] = useState([]);
+  const [adminLogType, setAdminLogType] = useState('');
+  const [adminLogSince, setAdminLogSince] = useState('');
+  const [adminLogUntil, setAdminLogUntil] = useState('');
+  const [unreadNotifCount, setUnreadNotifCount] = useState(0);
   const [notifBellOpen, setNotifBellOpen] = useState(false);
   const [webhooks, setWebhooks] = useState([]);
   const [newWebhookUrl, setNewWebhookUrl] = useState('');
+  const [emailNotificationsEnabled, setEmailNotificationsEnabled] = useState(Boolean(user.email_notifications_enabled));
   const [autoRefresh, setAutoRefresh] = useState(true);
   const [toasts, setToasts] = useState([]);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const toastId = useRef(0);
   const researchInputRef = useRef(null);
 
-  const [notifications, setNotifications] = useState(loadNotifications);
+  // DB-backed (GET /api/notifications) — replaces the old localStorage-only list so
+  // notifications survive across devices/sessions and the unread count is authoritative.
+  const [notifications, setNotifications] = useState([]);
   const [shortcutsModalOpen, setShortcutsModalOpen] = useState(false);
   const [reportModal, setReportModal] = useState(null);
   const [reportLoading, setReportLoading] = useState(false);
@@ -607,23 +613,40 @@ function Dashboard({ user, onLogout }) {
   const showToast = useCallback((msg, type = 'info') => {
     const id = ++toastId.current;
     setToasts(prev => [...prev, { id, msg, type }]);
-    setTimeout(() => setToasts(prev => prev.filter(x => x.id !== id)), 3500);
+    setTimeout(() => setToasts(prev => prev.filter(x => x.id !== id)), 5000);
   }, []);
 
-  const addNotification = useCallback((type, message) => {
-    setNotifications(prev => {
-      const next = [{ id: `${Date.now()}-${Math.random().toString(36).slice(2)}`, type, message, time: new Date().toISOString(), read: false }, ...prev].slice(0, 50);
-      localStorage.setItem('dsh-notifications', JSON.stringify(next));
-      return next;
-    });
+  // Guards against out-of-order responses: the periodic poll and an action-triggered
+  // refresh (e.g. right after a search) can both be in flight at once, and a slower,
+  // earlier request resolving after a faster, later one would otherwise clobber fresh
+  // state with stale data. Only the response to the most recently issued request is applied.
+  const notifRequestSeq = useRef(0);
+  const loadNotificationsFromServer = useCallback(() => {
+    const seq = ++notifRequestSeq.current;
+    authFetch(API_URL, '/notifications')
+      .then(d => {
+        if (seq !== notifRequestSeq.current) return;
+        setNotifications(d.notifications || []);
+        setUnreadNotifCount(d.unreadCount || 0);
+      })
+      .catch(() => {});
   }, []);
+
+  // Persists a notification server-side (replacing the old localStorage-only write) and
+  // refreshes the list so the bell's unread count stays authoritative. Fire-and-forget —
+  // callers throughout this file don't await it, matching the old synchronous behavior.
+  const addNotification = useCallback((type, message) => {
+    authFetch(API_URL, '/notifications', { method: 'POST', body: JSON.stringify({ type, message }) })
+      .then(loadNotificationsFromServer)
+      .catch(() => {});
+  }, [loadNotificationsFromServer]);
 
   // Gates a search/analyze action behind the user's monthly plan limit. Returns true if the
   // action may proceed (and has already been counted); on a 403 LIMIT_REACHED, re-fetches
   // /user/usage for display data and opens the upgrade modal instead.
-  const checkAndIncrementUsage = useCallback(async (actionType) => {
+  const checkAndIncrementUsage = useCallback(async (actionType, meta = {}) => {
     try {
-      await authFetch(API_URL, '/user/usage/increment', { method: 'POST', body: JSON.stringify({ actionType }) });
+      await authFetch(API_URL, '/user/usage/increment', { method: 'POST', body: JSON.stringify({ actionType, ...meta }) });
       return true;
     } catch {
       const status = await authFetch(API_URL, '/user/usage').catch(() => null);
@@ -654,6 +677,19 @@ function Dashboard({ user, onLogout }) {
     }
   }, [showToast]);
 
+  const toggleEmailNotifications = useCallback(async (enabled) => {
+    setEmailNotificationsEnabled(enabled);
+    try {
+      await authFetch(API_URL, '/user/preferences', {
+        method: 'PUT',
+        body: JSON.stringify({ emailNotifications: enabled }),
+      });
+    } catch (err) {
+      setEmailNotificationsEnabled(!enabled);
+      showToast(err.message || 'Could not save preference', 'error');
+    }
+  }, [showToast]);
+
   useEffect(() => { if (page === 'usersettings') setSettingsDraft(appSettings); }, [page, appSettings]);
 
   useEffect(() => {
@@ -663,18 +699,60 @@ function Dashboard({ user, onLogout }) {
     authFetch(API_URL, '/webhooks').then(d => setWebhooks(d.webhooks || [])).catch(() => {});
   }, [page]);
 
+  const loadAdminUsers = useCallback(() => {
+    const params = new URLSearchParams();
+    if (adminUserSearch.trim()) params.set('q', adminUserSearch.trim());
+    params.set('sortBy', adminSortBy);
+    params.set('sortDir', adminSortDir);
+    authFetch(API_URL, `/admin/users?${params.toString()}`)
+      .then(d => { setAdminUsers(d.users || []); setAdminUserTotal(d.total || 0); })
+      .catch(() => {});
+  }, [adminUserSearch, adminSortBy, adminSortDir]);
+
+  const loadAdminLogs = useCallback(() => {
+    const params = new URLSearchParams();
+    if (adminLogType) params.set('type', adminLogType);
+    if (adminLogSince) params.set('since', adminLogSince);
+    if (adminLogUntil) params.set('until', adminLogUntil);
+    authFetch(API_URL, `/admin/logs?${params.toString()}`).then(d => setAdminLogs(d.logs || [])).catch(() => {});
+  }, [adminLogType, adminLogSince, adminLogUntil]);
+
+  const exportAdminLogs = useCallback((format) => {
+    const params = new URLSearchParams({ format });
+    if (adminLogType) params.set('type', adminLogType);
+    if (adminLogSince) params.set('since', adminLogSince);
+    if (adminLogUntil) params.set('until', adminLogUntil);
+    const token = localStorage.getItem('token');
+    fetch(`${API_URL}/admin/logs/export?${params.toString()}`, { headers: { Authorization: `Bearer ${token}` } })
+      .then(res => res.blob())
+      .then(blob => {
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `logs.${format}`;
+        a.click();
+        URL.revokeObjectURL(url);
+      })
+      .catch(() => showToast('Could not export logs', 'error'));
+  }, [adminLogType, adminLogSince, adminLogUntil, showToast]);
+
   const loadAdminData = useCallback(() => {
-    authFetch(API_URL, '/admin/users').then(d => setAdminUsers(d.users || [])).catch(() => {});
+    loadAdminUsers();
     authFetch(API_URL, '/admin/stats').then(setAdminStats).catch(() => {});
     authFetch(API_URL, '/admin/health').then(setAdminHealth).catch(() => {});
-    authFetch(API_URL, '/admin/logs').then(d => setAdminLogs(d.logs || [])).catch(() => {});
+    loadAdminLogs();
     authFetch(API_URL, '/plans').then(d => setBillingPlans(d.plans || [])).catch(() => {});
-  }, []);
+  }, [loadAdminUsers, loadAdminLogs]);
 
   useEffect(() => {
     if (page !== 'admin') return;
     loadAdminData();
   }, [page, loadAdminData]);
+
+  useEffect(() => {
+    if (page !== 'admin') return;
+    loadAdminUsers();
+  }, [page, adminUserSearch, adminSortBy, adminSortDir, loadAdminUsers]);
 
   const addWebhook = useCallback(async () => {
     if (!newWebhookUrl.trim()) return;
@@ -719,14 +797,31 @@ function Dashboard({ user, onLogout }) {
   }, [showToast, loadAdminData]);
 
   const markAllNotificationsRead = useCallback(() => {
-    setNotifications(prev => {
-      const next = prev.map(n => ({ ...n, read: true }));
-      localStorage.setItem('dsh-notifications', JSON.stringify(next));
-      return next;
-    });
-  }, []);
+    authFetch(API_URL, '/notifications/read-all', { method: 'POST' })
+      .then(loadNotificationsFromServer)
+      .catch(() => {});
+  }, [loadNotificationsFromServer]);
 
-  const unreadNotifCount = notifications.filter(n => !n.read).length;
+  const markNotificationRead = useCallback((id) => {
+    authFetch(API_URL, `/notifications/${id}/read`, { method: 'POST' })
+      .then(loadNotificationsFromServer)
+      .catch(() => {});
+  }, [loadNotificationsFromServer]);
+
+  const clearAllNotifications = useCallback(() => {
+    authFetch(API_URL, '/notifications', { method: 'DELETE' })
+      .then(loadNotificationsFromServer)
+      .catch(() => {});
+  }, [loadNotificationsFromServer]);
+
+  // Poll the same way fetchAll does for the rest of the dashboard — the bell needs to pick
+  // up server-side-triggered notifications (limit reached, admin plan changes) without a
+  // manual refresh.
+  useEffect(() => {
+    loadNotificationsFromServer();
+    const iv = setInterval(loadNotificationsFromServer, 30000);
+    return () => clearInterval(iv);
+  }, [loadNotificationsFromServer]);
 
   const saveSettings = () => {
     setAppSettings(settingsDraft);
@@ -886,7 +981,7 @@ function Dashboard({ user, onLogout }) {
       showToast(t.selectPlatform, 'warning');
       return;
     }
-    if (!(await checkAndIncrementUsage('search'))) return;
+    if (!(await checkAndIncrementUsage('search', { query: researchQuery.trim(), platforms: selectedPlatforms }))) return;
 
     setResearchLoading(true);
     setResearchError(null);
@@ -934,10 +1029,14 @@ function Dashboard({ user, onLogout }) {
       if (Object.keys(errors).length > 0) {
         console.warn('[Products Research] per-platform search errors', errors);
       }
-      if (results.length === 0) showToast(t.noProductsFound, 'info');
+      if (results.length === 0) {
+        showToast(t.noProductsFound, 'info');
+      } else {
+        addNotification('search_complete', `Search complete — found ${results.length} product${results.length === 1 ? '' : 's'} for "${researchQuery.trim()}"`);
+      }
       const failedPlatforms = Object.keys(errors);
       if (failedPlatforms.length > 0) {
-        addNotification('error', `Search failed on ${failedPlatforms.join(', ')}: ${errors[failedPlatforms[0]]}`);
+        addNotification('error_alert', `Search failed on ${failedPlatforms.join(', ')}: ${errors[failedPlatforms[0]]}`);
       }
     } catch (err) {
       console.error('[Products Research] search-products request threw', err, { requestBody });
@@ -946,7 +1045,7 @@ function Dashboard({ user, onLogout }) {
       setResearchTotalPages(1);
       setResearchTotalResults(0);
       showToast(t.reachFailed, 'error');
-      addNotification('error', `Product search failed for "${researchQuery.trim()}"`);
+      addNotification('error_alert', `Product search failed for "${researchQuery.trim()}"`);
     } finally {
       setResearchLoading(false);
     }
@@ -1212,13 +1311,14 @@ function Dashboard({ user, onLogout }) {
       }
       const data = await res.json();
       showToast(`"${p.name}" analyzed and saved`, 'success');
-      addNotification('success', `Saved "${p.name}" — priced at ${data.currency} ${Number(data.selling_price).toFixed(2)}`);
+      addNotification('product_added', `Saved "${p.name}" — priced at ${data.currency} ${Number(data.selling_price).toFixed(2)}`);
       setResearchResults(prev => prev.map(item => (item === p ? { ...item, _added: true } : item)));
       closeProductModal();
       fetchSavedProducts();
       fetchDashboardStats();
     } catch (err) {
       showToast(err.message || 'Could not analyze this product', 'error');
+      addNotification('error_alert', `Could not analyze "${p.name}": ${err.message || 'unknown error'}`);
     } finally {
       setAnalyzingProduct(false);
     }
@@ -1767,8 +1867,14 @@ function Dashboard({ user, onLogout }) {
     { id: 'analytics', icon: '📊', label: 'Analytics' },
     { id: 'platforms', icon: '⚙️', label: t.platformSettings },
     { id: 'usersettings', icon: '⚙️', label: 'Settings' },
-    ...(user.role === 'admin' ? [{ id: 'admin', icon: '🛡️', label: 'Admin' }] : []),
+    ...(user.is_admin ? [{ id: 'admin', icon: '🛡️', label: 'Admin' }] : []),
   ];
+
+  // Guard against a non-admin ending up on the admin page (stale state, or someone
+  // fiddling with localStorage) — bounce back to the dashboard rather than rendering it.
+  useEffect(() => {
+    if (page === 'admin' && !user.is_admin) setPage('dashboard');
+  }, [page, user.is_admin]);
 
   const closeAnyModal = useCallback(() => {
     if (logoutConfirmOpen) { setLogoutConfirmOpen(false); return; }
@@ -1838,6 +1944,48 @@ function Dashboard({ user, onLogout }) {
         <div className="dsh-logo">
           <span className="dsh-logo-mark">◆</span>
           <span className="dsh-logo-text">Nexus</span>
+          <div style={{ position: 'relative' }}>
+            <button
+              className="dsh-icon-btn dsh-logo-theme-toggle"
+              onClick={() => setNotifBellOpen(o => !o)}
+              title="Notifications"
+              style={{ position: 'relative' }}
+            >
+              🔔
+              {unreadNotifCount > 0 && (
+                <span className="dsh-notif-badge">{unreadNotifCount > 9 ? '9+' : unreadNotifCount}</span>
+              )}
+            </button>
+            {notifBellOpen && (
+              <div className="dsh-notif-dropdown">
+                <div className="dsh-notif-dropdown-head">
+                  <strong>Notifications</strong>
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <button className="dsh-btn dsh-btn--ghost" onClick={markAllNotificationsRead}>Mark all read</button>
+                    <button className="dsh-btn dsh-btn--ghost" onClick={clearAllNotifications}>Clear all</button>
+                  </div>
+                </div>
+                {notifications.length === 0 ? (
+                  <div className="dsh-notif-empty">No notifications yet</div>
+                ) : (
+                  notifications.slice(0, 20).map(n => (
+                    <div
+                      key={n.id}
+                      className={`dsh-notif-row ${n.read ? '' : 'dsh-notif-row--unread'}`}
+                      onClick={() => !n.read && markNotificationRead(n.id)}
+                      style={{ cursor: n.read ? 'default' : 'pointer' }}
+                    >
+                      <span>{NOTIF_ICONS[n.type] || 'ℹ'}</span>
+                      <div>
+                        <div className="dsh-notif-msg">{n.message}</div>
+                        <div className="dsh-notif-time">{new Date(n.created_at).toLocaleString()}</div>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            )}
+          </div>
           <button className="dsh-icon-btn dsh-logo-theme-toggle" onClick={() => setDark(!dark)} title="Toggle theme">
             {dark ? '☀️' : '🌙'}
           </button>
@@ -1881,40 +2029,6 @@ function Dashboard({ user, onLogout }) {
               {greeting.text}, <span className="dsh-title-name">{displayName}</span> {greeting.emoji}
             </h1>
             <p className="dsh-sub dsh-sub--animated" key={headerDescription}>{headerDescription}</p>
-          </div>
-          <div className="dsh-header-actions" style={{ position: 'relative' }}>
-            <button
-              className="dsh-icon-btn"
-              onClick={() => setNotifBellOpen(o => !o)}
-              title="Notifications"
-              style={{ position: 'relative' }}
-            >
-              🔔
-              {unreadNotifCount > 0 && (
-                <span className="dsh-notif-badge">{unreadNotifCount > 9 ? '9+' : unreadNotifCount}</span>
-              )}
-            </button>
-            {notifBellOpen && (
-              <div className="dsh-notif-dropdown">
-                <div className="dsh-notif-dropdown-head">
-                  <strong>Notifications</strong>
-                  <button className="dsh-btn dsh-btn--ghost" onClick={markAllNotificationsRead}>Mark all read</button>
-                </div>
-                {notifications.length === 0 ? (
-                  <div className="dsh-notif-empty">No notifications yet</div>
-                ) : (
-                  notifications.slice(0, 20).map(n => (
-                    <div key={n.id} className={`dsh-notif-row ${n.read ? '' : 'dsh-notif-row--unread'}`}>
-                      <span>{NOTIF_ICONS[n.type] || 'ℹ'}</span>
-                      <div>
-                        <div className="dsh-notif-msg">{n.message}</div>
-                        <div className="dsh-notif-time">{new Date(n.time).toLocaleString()}</div>
-                      </div>
-                    </div>
-                  ))
-                )}
-              </div>
-            )}
           </div>
         </header>
 
@@ -3118,6 +3232,24 @@ function Dashboard({ user, onLogout }) {
                     onChange={e => setSettingsDraft(s => ({ ...s, email: e.target.value }))}
                   />
                 </div>
+                <div className="dsh-settings-section">
+                  <div className="dsh-settings-item">
+                    <div className="dsh-settings-item-text">
+                      <div className="dsh-settings-item-name">Email Notifications</div>
+                      <div className="dsh-settings-item-desc">
+                        Product alerts, limit warnings, and upgrade confirmations (no real emails are sent yet — this only saves your preference).
+                      </div>
+                    </div>
+                    <label className="dsh-toggle">
+                      <input
+                        type="checkbox"
+                        checked={emailNotificationsEnabled}
+                        onChange={e => toggleEmailNotifications(e.target.checked)}
+                      />
+                      <span className="dsh-toggle-slider" />
+                    </label>
+                  </div>
+                </div>
               </div>
 
               <div className="dsh-settings-panel">
@@ -3315,7 +3447,7 @@ function Dashboard({ user, onLogout }) {
           </section>
         )}
 
-        {page === 'admin' && user.role === 'admin' && (
+        {page === 'admin' && user.is_admin && (
           <section className="dsh-section">
             <div className="dsh-section-head">
               <h2>🛡️ Admin</h2>
@@ -3323,47 +3455,125 @@ function Dashboard({ user, onLogout }) {
             </div>
 
             {adminStats && (
-              <section className="dsh-stats">
-                <div className="dsh-stat dsh-stat--purple">
-                  <span className="dsh-stat-icon">👥</span>
-                  <div>
-                    <div className="dsh-stat-num">{adminStats.total_users}</div>
-                    <div className="dsh-stat-label">Total Users</div>
+              <>
+                <section className="dsh-stats">
+                  <div className="dsh-stat dsh-stat--purple">
+                    <span className="dsh-stat-icon">👥</span>
+                    <div>
+                      <div className="dsh-stat-num">{adminStats.total_users}</div>
+                      <div className="dsh-stat-label">Total Users</div>
+                    </div>
+                  </div>
+                  <div className="dsh-stat dsh-stat--gold">
+                    <span className="dsh-stat-icon">💰</span>
+                    <div>
+                      <div className="dsh-stat-num">${adminStats.revenue_proxy.toFixed(2)}</div>
+                      <div className="dsh-stat-label">Revenue this month (proxy)</div>
+                    </div>
+                  </div>
+                  <div className="dsh-stat dsh-stat--blue">
+                    <span className="dsh-stat-icon">🔍</span>
+                    <div>
+                      <div className="dsh-stat-num">{adminStats.active_searches_24h}</div>
+                      <div className="dsh-stat-label">Searches Today</div>
+                    </div>
+                  </div>
+                </section>
+
+                <div className="dsh-settings-panel">
+                  <h3 className="dsh-settings-panel-title">📈 Top 5 Most-Searched Products</h3>
+                  {adminStats.top_products.length === 0 ? (
+                    <div className="dsh-settings-item-desc">No search data yet.</div>
+                  ) : (
+                    <div className="dsh-platform-checks" style={{ flexDirection: 'column', alignItems: 'stretch', gap: 6 }}>
+                      {adminStats.top_products.map((p, i) => (
+                        <div key={p.query} className="dsh-platform-check" style={{ justifyContent: 'space-between' }}>
+                          <span>#{i + 1} {p.query}</span>
+                          <span className="dsh-badge">{p.search_count} searches</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                <div className="dsh-settings-panel">
+                  <h3 className="dsh-settings-panel-title">🌐 Platform Breakdown</h3>
+                  {adminStats.platform_breakdown.length === 0 ? (
+                    <div className="dsh-settings-item-desc">No search data yet.</div>
+                  ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                      {adminStats.platform_breakdown.map(p => (
+                        <div key={p.platform}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, marginBottom: 4 }}>
+                            <span>{platformLabel(p.platform)}</span>
+                            <span>{p.percent}% ({p.count})</span>
+                          </div>
+                          <div className="dsh-usage-bar"><div className="dsh-usage-bar-fill" style={{ width: `${p.percent}%` }} /></div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                <div className="dsh-settings-panel">
+                  <h3 className="dsh-settings-panel-title">💳 Revenue by Plan</h3>
+                  <div className="dsh-platform-checks" style={{ flexDirection: 'column', alignItems: 'stretch', gap: 6 }}>
+                    {adminStats.revenue_by_plan.map(p => (
+                      <div key={p.plan_key} className="dsh-platform-check" style={{ justifyContent: 'space-between' }}>
+                        <span>{p.plan_name} ({p.user_count} users)</span>
+                        <span>${p.revenue.toFixed(2)}</span>
+                      </div>
+                    ))}
                   </div>
                 </div>
-                <div className="dsh-stat dsh-stat--gold">
-                  <span className="dsh-stat-icon">💰</span>
-                  <div>
-                    <div className="dsh-stat-num">${(adminStats.revenue_proxy_cents / 100).toFixed(2)}</div>
-                    <div className="dsh-stat-label">Revenue (proxy)</div>
-                  </div>
-                </div>
-                <div className="dsh-stat dsh-stat--blue">
-                  <span className="dsh-stat-icon">🔍</span>
-                  <div>
-                    <div className="dsh-stat-num">{adminStats.active_searches_24h}</div>
-                    <div className="dsh-stat-label">Actions (24h)</div>
-                  </div>
-                </div>
-              </section>
+              </>
             )}
 
             {adminHealth && (
               <div className="dsh-settings-panel">
                 <h3 className="dsh-settings-panel-title">System Health</h3>
-                <div style={{ display: 'flex', gap: 24 }}>
+                <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap', marginBottom: 10 }}>
                   <span>{adminHealth.express?.ok ? '🟢' : '🔴'} Express Backend</span>
                   <span>{adminHealth.fastapi?.ok ? '🟢' : '🔴'} FastAPI Research Service</span>
+                  <span>{adminHealth.scraper?.ok ? '🟢' : '🔴'} Scraper Scheduler</span>
+                </div>
+                <div className="dsh-settings-item-desc">
+                  Last scraper run: {adminHealth.scraper?.lastRunAt ? new Date(adminHealth.scraper.lastRunAt).toLocaleString() : 'never'}
+                  {' • '}Errors (24h): {adminHealth.errorCount24h}
+                  {' • '}Uptime: {Math.floor(adminHealth.uptimeSeconds / 3600)}h {Math.floor((adminHealth.uptimeSeconds % 3600) / 60)}m since last restart
                 </div>
               </div>
             )}
 
             <div className="dsh-settings-panel">
-              <h3 className="dsh-settings-panel-title">Users</h3>
+              <h3 className="dsh-settings-panel-title">Users ({adminUserTotal})</h3>
+              <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
+                <input
+                  className="dsh-input"
+                  placeholder="Search by name or email..."
+                  value={adminUserSearch}
+                  onChange={e => setAdminUserSearch(e.target.value)}
+                  style={{ flex: 1, minWidth: 200 }}
+                />
+                <select className="dsh-input" value={adminSortBy} onChange={e => setAdminSortBy(e.target.value)}>
+                  <option value="name">Sort: Name</option>
+                  <option value="email">Sort: Email</option>
+                  <option value="plan">Sort: Plan</option>
+                  <option value="joined_date">Sort: Joined Date</option>
+                </select>
+                <select className="dsh-input" value={adminSortDir} onChange={e => setAdminSortDir(e.target.value)}>
+                  <option value="asc">Ascending</option>
+                  <option value="desc">Descending</option>
+                </select>
+              </div>
               <div className="dsh-platform-checks" style={{ flexDirection: 'column', alignItems: 'stretch', gap: 8 }}>
                 {adminUsers.map(u => (
                   <div key={u.id} className="dsh-platform-check" style={{ justifyContent: 'space-between' }}>
-                    <span>{u.name} ({u.email}) — {u.role} — {u.plan_key || 'free'}</span>
+                    <span>
+                      {u.name} ({u.email}) — {u.is_admin ? 'admin' : 'user'} — {u.plan_key || 'free'}
+                      {' • '}{u.products_used_this_month} used
+                      {' • '}Joined {new Date(u.created_at).toLocaleDateString()}
+                    </span>
                     <div style={{ display: 'flex', gap: 8 }}>
                       <select
                         className="dsh-input"
@@ -3387,8 +3597,24 @@ function Dashboard({ user, onLogout }) {
 
             <div className="dsh-settings-panel">
               <h3 className="dsh-settings-panel-title">Logs</h3>
+              <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
+                <select className="dsh-input" value={adminLogType} onChange={e => setAdminLogType(e.target.value)}>
+                  <option value="">All types</option>
+                  <option value="search">Search</option>
+                  <option value="error">Error</option>
+                  <option value="admin_action">Admin Action</option>
+                  <option value="plan_change">Plan Change</option>
+                </select>
+                <input type="date" className="dsh-input" value={adminLogSince} onChange={e => setAdminLogSince(e.target.value)} />
+                <input type="date" className="dsh-input" value={adminLogUntil} onChange={e => setAdminLogUntil(e.target.value)} />
+                <button className="dsh-btn dsh-btn--ghost" onClick={loadAdminLogs}>Apply Filters</button>
+                <button className="dsh-btn dsh-btn--ghost" onClick={() => exportAdminLogs('csv')}>⬇ CSV</button>
+                <button className="dsh-btn dsh-btn--ghost" onClick={() => exportAdminLogs('json')}>⬇ JSON</button>
+              </div>
               <pre className="dsh-admin-logs">
-                {adminLogs.length === 0 ? 'No log entries yet.' : adminLogs.map(l => JSON.stringify(l)).join('\n')}
+                {adminLogs.length === 0 ? 'No log entries yet.' : adminLogs.map(l =>
+                  `[${new Date(l.timestamp).toLocaleString()}] ${l.type} | ${l.user} | ${l.action} | ${l.details}`
+                ).join('\n')}
               </pre>
             </div>
           </section>

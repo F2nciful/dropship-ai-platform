@@ -2,6 +2,8 @@ const express = require('express');
 const db = require('../database.js');
 const { requireAuth } = require('../middleware/auth.js');
 const { resetIfNewPeriod, currentPeriodKey, isFirstMonth, nextBillingDate } = require('../utils/planLimits.js');
+const { createNotification } = require('../utils/notify.js');
+const { sendEmail } = require('../utils/email.js');
 
 const router = express.Router();
 router.use(requireAuth);
@@ -49,12 +51,37 @@ router.post('/usage/increment', (req, res) => {
   }
 
   db.prepare('UPDATE users SET products_used_this_month = products_used_this_month + 1 WHERE id = ?').run(req.user.id);
-  db.prepare('INSERT INTO usage_events (user_id, action_type) VALUES (?, ?)').run(
+  // query/platforms are only meaningful for 'search' actions — they're what the admin
+  // stats endpoint's "top 5 most searched products" and platform breakdown are computed
+  // from; the frontend passes them through since Express has no other visibility into
+  // what was actually searched on the separate FastAPI service.
+  db.prepare('INSERT INTO usage_events (user_id, action_type, query, platforms) VALUES (?, ?, ?, ?)').run(
     req.user.id,
-    req.body.actionType || 'unknown'
+    req.body.actionType || 'unknown',
+    req.body.query || null,
+    req.body.platforms ? JSON.stringify(req.body.platforms) : null
   );
 
   const nextUsed = used + 1;
+
+  // 80%-of-limit notification — an Express-observable event (Express already knows
+  // used/limit), so it's created directly here rather than needing a round trip from the
+  // frontend.
+  if (limit !== null) {
+    const prevPercent = Math.round((used / limit) * 100);
+    const nextPercent = Math.round((nextUsed / limit) * 100);
+    if (prevPercent < 80 && nextPercent >= 80) {
+      createNotification(
+        req.user.id,
+        'limit_reached',
+        `You've used ${nextPercent}% of your ${req.user.plan_name || 'plan'} monthly limit (${nextUsed}/${limit}) — consider upgrading.`
+      );
+      if (req.user.email_notifications_enabled) {
+        sendEmail(req.user.email, 'limit_warning', { userName: req.user.name, percentUsed: nextPercent, planName: req.user.plan_name });
+      }
+    }
+  }
+
   res.json({
     success: true,
     used: nextUsed,
@@ -95,6 +122,11 @@ router.post('/change-plan', (req, res) => {
     'INSERT INTO subscription_events (user_id, event_type, from_plan, to_plan, amount_charged) VALUES (?, ?, ?, ?, ?)'
   ).run(req.user.id, 'plan_changed', fromPlanKey, plan.key, chargeAmount);
 
+  createNotification(req.user.id, 'upgrade_successful', `You're now on the ${plan.name} plan.`);
+  if (req.user.email_notifications_enabled) {
+    sendEmail(req.user.email, 'upgrade_confirmation', { userName: req.user.name, planName: plan.name });
+  }
+
   res.json({
     success: true,
     plan,
@@ -104,6 +136,17 @@ router.post('/change-plan', (req, res) => {
       ? `Switched to ${plan.name} — $${chargeAmount.toFixed(2)} for your first month (payment integration pending real API keys, not actually charged yet)`
       : `Switched to ${plan.name}`,
   });
+});
+
+// Email-notification preference toggle (Settings checkbox). Only stores the preference —
+// see utils/email.js for the skeleton this gates once real email sending exists.
+router.put('/preferences', (req, res) => {
+  const { emailNotifications } = req.body;
+  db.prepare('UPDATE users SET email_notifications_enabled = ? WHERE id = ?').run(
+    emailNotifications ? 1 : 0,
+    req.user.id
+  );
+  res.json({ success: true, emailNotifications: Boolean(emailNotifications) });
 });
 
 module.exports = router;

@@ -24,19 +24,20 @@ router.post('/register', async (req, res) => {
       return res.status(409).json({ success: false, message: 'User exists' });
     }
 
-    const isFirstUser = db.prepare('SELECT COUNT(*) as c FROM users').get().c === 0;
-    const role = isFirstUser ? 'admin' : 'user';
-
+    // Every new user registers as a plain, non-admin account — is_admin defaults to 0 and
+    // is never set here or anywhere else in the app; the only way to grant admin access is
+    // a direct database edit (see database.js's is_admin backfill comment for the one-time
+    // migration that preserved pre-existing admin accounts from the old role-based scheme).
     const hashedPassword = await bcryptjs.hash(password, 10);
-    const insert = db.prepare('INSERT INTO users (name, email, password, role, created_at) VALUES (?, ?, ?, ?, ?)');
-    const result = insert.run(name, email, hashedPassword, role, new Date().toISOString());
+    const insert = db.prepare('INSERT INTO users (name, email, password, created_at) VALUES (?, ?, ?, ?)');
+    const result = insert.run(name, email, hashedPassword, new Date().toISOString());
 
     const token = jwt.sign({ userId: result.lastInsertRowid, email }, JWT_SECRET, { expiresIn: '7d' });
 
     res.status(201).json({
       success: true,
       token,
-      user: { id: result.lastInsertRowid, name, email, role },
+      user: { id: result.lastInsertRowid, name, email, is_admin: false },
     });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
@@ -66,7 +67,7 @@ router.post('/login', async (req, res) => {
 
     const token = jwt.sign({ userId: user.id, email: user.email }, JWT_SECRET, { expiresIn: '7d' });
 
-    res.json({ success: true, token, user: { id: user.id, name: user.name, email: user.email, role: user.role } });
+    res.json({ success: true, token, user: { id: user.id, name: user.name, email: user.email, is_admin: Boolean(user.is_admin) } });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
   }

@@ -58,6 +58,15 @@ function initDatabase() {
     // Backfill only — every user should have a start date for "first month" pricing to be
     // computable; new rows get this set explicitly at registration/plan-change time instead.
     db.prepare("UPDATE users SET subscription_start_date = COALESCE(subscription_start_date, created_at, CURRENT_TIMESTAMP) WHERE subscription_start_date IS NULL").run();
+    addColumnIfMissing('users', 'is_admin INTEGER NOT NULL DEFAULT 0', 'is_admin');
+    // One-time backfill from the old role-based admin flag (this app used to auto-promote
+    // the first registered user to role='admin'). Going forward, is_admin is the sole
+    // source of truth and is never written by any application code path — per the
+    // requirement that admin status can only be granted via a direct database edit, not
+    // through the app itself. This UPDATE is a no-op after the first run since role stops
+    // changing once nothing sets it anymore.
+    db.prepare("UPDATE users SET is_admin = 1 WHERE role = 'admin' AND is_admin = 0").run();
+    addColumnIfMissing('users', 'email_notifications_enabled INTEGER NOT NULL DEFAULT 1', 'email_notifications_enabled');
     console.log('✅ Users table ready');
 
     // Agents table
@@ -177,7 +186,12 @@ function initDatabase() {
     console.log('✅ Plans table ready');
 
     // One row per search/analyze action a user performs — the running total behind
-    // users.monthly_usage_count, kept as an append-only log for the admin stats endpoint.
+    // users.products_used_this_month, kept as an append-only log for the admin stats
+    // endpoint. query/platforms are populated for 'search' actions only (the frontend
+    // passes them through before calling the separate FastAPI search-products service,
+    // which has no concept of Express users/plans) — they're what "top 5 most searched
+    // products" and the AliExpress/Amazon/eBay platform breakdown are computed from,
+    // entirely from Express-side data, without reaching into FastAPI's product DB.
     db.exec(`
       CREATE TABLE IF NOT EXISTS usage_events (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -186,6 +200,8 @@ function initDatabase() {
         created_at TEXT DEFAULT CURRENT_TIMESTAMP
       )
     `);
+    addColumnIfMissing('usage_events', 'query TEXT', 'query');
+    addColumnIfMissing('usage_events', 'platforms TEXT', 'platforms');
     console.log('✅ Usage events table ready');
 
     // Audit trail for plan changes — Stripe checkout lifecycle events once configured,
@@ -217,6 +233,35 @@ function initDatabase() {
       )
     `);
     console.log('✅ Webhooks table ready');
+
+    // Structured record of admin actions (plan changes, user deletion) — distinct from the
+    // file-based app.log/error.log, and from subscription_events (which records the plan
+    // change itself, not "an admin did this"). Feeds the unified admin logs viewer.
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS admin_logs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        admin_id INTEGER REFERENCES users(id),
+        action TEXT NOT NULL,
+        details TEXT,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    console.log('✅ Admin logs table ready');
+
+    // Per-user, DB-backed notifications — replaces the earlier client-side-only
+    // (localStorage) notification list, so notifications survive across devices/sessions
+    // and the unread count is authoritative rather than a local guess.
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS notifications (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER REFERENCES users(id),
+        type TEXT NOT NULL,
+        message TEXT NOT NULL,
+        read INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    console.log('✅ Notifications table ready');
 
     console.log('🎉 Database initialized successfully!');
   } catch (error) {

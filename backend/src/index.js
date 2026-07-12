@@ -61,6 +61,7 @@ app.use('/api/plans', require('./routes/plans.js'));
 app.use('/api/user', require('./routes/user.js'));
 app.use('/api/admin', require('./routes/admin.js'));
 app.use('/api/webhooks', require('./routes/webhooks.js'));
+app.use('/api/notifications', require('./routes/notifications.js'));
 
 // Health check
 app.get('/api/health', (req, res) => {
