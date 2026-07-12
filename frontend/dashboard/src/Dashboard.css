@@ -76,6 +76,7 @@
 .dsh-logo {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 10px;
   padding: 0 8px 28px;
   font-size: 20px;
@@ -83,6 +84,39 @@
   font-weight: 700;
   letter-spacing: 0.3px;
 }
+
+.dsh-logo-text { flex: 1; }
+
+/* The sidebar (position: sticky) creates its own stacking context, so the notification
+   trigger lives there but the overlay/panel render as top-level siblings of it instead —
+   otherwise their z-index would be capped inside the sidebar's stacking context and the
+   main content would paint over them regardless of the z-index value. */
+.dsh-notif-panel.dsh-notif-panel--floating {
+  position: fixed;
+  top: 76px;
+  inset-inline-start: 276px;
+  right: auto;
+}
+
+@media (max-width: 640px) {
+  .dsh-notif-panel.dsh-notif-panel--floating { inset-inline-start: 16px; top: 70px; }
+}
+
+.dsh-logout-btn {
+  width: 100%;
+  padding: 12px 0;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--card);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.dsh-logout-btn:hover { border-color: #ef4444; color: #ef4444; }
 
 .dsh-logo-mark {
   color: var(--purple-text);

@@ -27,7 +27,7 @@ app.get('/api/health', (req, res) => {
 app.get('/api/agents', (req, res) => {
   const agents = [
     { 
-      id: 0, name: 'Manager Agent', status: 'active', type: 'manager',
+      id: 0, name: 'Manager', status: 'active', type: 'manager',
       role: 'System Coordinator', description: 'Orchestrates all agent operations',
       coordinating: 11, tasks_running: 5, uptime: '99.8%', icon: '👨‍💼',
       efficiency: '98.5%', success_rate: '99.2%', avg_response_time: '245ms'

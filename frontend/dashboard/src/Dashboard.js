@@ -184,7 +184,7 @@ const T = {
     darkMode: 'Dark mode', language: 'Language', exportCSV: 'Export CSV',
     details: 'Details', close: 'Close', status: 'Status', type: 'Type',
     created: 'Created', message: 'Message', time: 'Time', backendOnline: 'Backend Online',
-    backendOffline: 'Backend Offline', logout: 'Logout', manager: 'Manager Agent',
+    backendOffline: 'Backend Offline', logout: 'Logout', manager: 'Manager',
     coordinating: 'Coordinating', tasksRunning: 'Tasks Running', uptime: 'Uptime',
     noAgentsTitle: 'No Agents Found', noAgentsSub: 'Looks like there are no agents running right now',
     noResultsTitle: 'No Results', noResultsSub: "We couldn't find any agents matching your search",
@@ -1718,6 +1718,14 @@ const deselectAllAgents = useCallback(() => {
         <div className="dsh-logo">
           <span className="dsh-logo-mark">◆</span>
           <span className="dsh-logo-text">Nexus</span>
+          <button
+            className="dsh-notif-bell"
+            onClick={() => setNotifCenterOpen(o => !o)}
+            title="Notifications"
+          >
+            🔔
+            {unreadNotifCount > 0 && <span className="dsh-notif-badge">{unreadNotifCount > 9 ? '9+' : unreadNotifCount}</span>}
+          </button>
         </div>
 
         <div className="dsh-profit-ticker">
@@ -1823,14 +1831,9 @@ const deselectAllAgents = useCallback(() => {
         )}
 
         <div className="dsh-side-footer">
-          <div className={`dsh-conn ${backendUp ? 'dsh-conn--up' : 'dsh-conn--down'}`}>
-            <span className="dsh-dot" />
-            {backendUp ? t.backendOnline : t.backendOffline}
-          </div>
-          <div className="dsh-side-controls">
-            <button className="dsh-ctl" onClick={() => setDark(!dark)}>{dark ? '☀️' : '🌙'}</button>
-            <button className="dsh-ctl dsh-ctl--danger" onClick={onLogout}>⏻</button>
-          </div>
+          <button className="dsh-logout-btn" onClick={() => setLogoutConfirmOpen(true)}>
+            ⏻ Log Out
+          </button>
         </div>
       </aside>
 
@@ -1843,10 +1846,6 @@ const deselectAllAgents = useCallback(() => {
             <p className="dsh-sub dsh-sub--animated" key={headerDescription}>{headerDescription}</p>
           </div>
           <div className="dsh-header-actions">
-            <label className="dsh-switch">
-              <input type="checkbox" checked={autoRefresh} onChange={e => setAutoRefresh(e.target.checked)} />
-              <span className="dsh-switch-slider" />
-            </label>
             <button
               className="dsh-btn dsh-btn--ghost"
               onClick={() => fetchAll(false)}
@@ -1855,60 +1854,9 @@ const deselectAllAgents = useCallback(() => {
             >
               {refreshingAll ? <span className="dsh-spinner" /> : '⟳'} {t.refresh}
             </button>
-
-            <button
-              className="dsh-icon-btn dsh-icon-btn--danger"
-              onClick={() => setLogoutConfirmOpen(true)}
-              title="Log out"
-            >
-              ✕
+            <button className="dsh-icon-btn" onClick={() => setDark(!dark)} title="Toggle theme">
+              {dark ? '☀️' : '🌙'}
             </button>
-
-            <div className="dsh-notif-wrap">
-              <button
-                className="dsh-notif-bell"
-                onClick={() => setNotifCenterOpen(o => !o)}
-                title="Notifications"
-              >
-                🔔
-                {unreadNotifCount > 0 && <span className="dsh-notif-badge">{unreadNotifCount > 9 ? '9+' : unreadNotifCount}</span>}
-              </button>
-
-              {notifCenterOpen && (
-                <>
-                  <div className="dsh-notif-overlay" onClick={() => setNotifCenterOpen(false)} />
-                  <div className="dsh-notif-panel">
-                    <div className="dsh-notif-panel-header">
-                      <span>Notifications</span>
-                      <div className="dsh-notif-panel-actions">
-                        <button onClick={markAllNotificationsRead} disabled={unreadNotifCount === 0}>Mark all read</button>
-                        <button onClick={clearAllNotifications} disabled={notifications.length === 0}>Clear all</button>
-                      </div>
-                    </div>
-                    <div className="dsh-notif-list">
-                      {notifications.length === 0 ? (
-                        <div className="dsh-notif-empty">No notifications yet</div>
-                      ) : (
-                        notifications.map(n => (
-                          <div
-                            key={n.id}
-                            className={`dsh-notif-item dsh-notif-item--${n.type} ${n.read ? '' : 'dsh-notif-item--unread'}`}
-                            onClick={() => markNotificationRead(n.id)}
-                          >
-                            <span className="dsh-notif-icon">{NOTIF_ICONS[n.type] || 'ℹ'}</span>
-                            <div className="dsh-notif-body">
-                              <div className="dsh-notif-message">{n.message}</div>
-                              <div className="dsh-notif-time">{formatRelativeTime(n.time)}</div>
-                            </div>
-                            {!n.read && <span className="dsh-notif-dot" />}
-                          </div>
-                        ))
-                      )}
-                    </div>
-                  </div>
-                </>
-              )}
-            </div>
           </div>
         </header>
 
@@ -3437,6 +3385,41 @@ const deselectAllAgents = useCallback(() => {
           </section>
         )}
       </main>
+
+      {notifCenterOpen && (
+        <>
+          <div className="dsh-notif-overlay" onClick={() => setNotifCenterOpen(false)} />
+          <div className="dsh-notif-panel dsh-notif-panel--floating">
+            <div className="dsh-notif-panel-header">
+              <span>Notifications</span>
+              <div className="dsh-notif-panel-actions">
+                <button onClick={markAllNotificationsRead} disabled={unreadNotifCount === 0}>Mark all read</button>
+                <button onClick={clearAllNotifications} disabled={notifications.length === 0}>Clear all</button>
+              </div>
+            </div>
+            <div className="dsh-notif-list">
+              {notifications.length === 0 ? (
+                <div className="dsh-notif-empty">No notifications yet</div>
+              ) : (
+                notifications.map(n => (
+                  <div
+                    key={n.id}
+                    className={`dsh-notif-item dsh-notif-item--${n.type} ${n.read ? '' : 'dsh-notif-item--unread'}`}
+                    onClick={() => markNotificationRead(n.id)}
+                  >
+                    <span className="dsh-notif-icon">{NOTIF_ICONS[n.type] || 'ℹ'}</span>
+                    <div className="dsh-notif-body">
+                      <div className="dsh-notif-message">{n.message}</div>
+                      <div className="dsh-notif-time">{formatRelativeTime(n.time)}</div>
+                    </div>
+                    {!n.read && <span className="dsh-notif-dot" />}
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </>
+      )}
 
       {settingsAgent && (
         <div className="dsh-modal-back" onClick={() => setSettingsAgent(null)}>
