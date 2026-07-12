@@ -126,6 +126,15 @@
 
 .dsh-logo-text { color: var(--purple-text); }
 
+.dsh-side-refresh {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
 .dsh-nav { display: flex; flex-direction: column; gap: 4px; flex: 0; }
 
 .dsh-nav-item {
@@ -673,6 +682,62 @@
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
   gap: 16px;
+}
+
+.dsh-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 20px;
+  padding: 14px 16px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+
+.dsh-pagination-summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text2);
+  white-space: nowrap;
+}
+
+.dsh-pagination-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.dsh-pagination-page {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--text2);
+  white-space: nowrap;
+}
+
+.dsh-pagination-page-input {
+  width: 56px;
+  padding: 6px 8px;
+  text-align: center;
+}
+
+.dsh-pagination-page-size {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text2);
+}
+
+@media (max-width: 640px) {
+  .dsh-pagination { flex-direction: column; align-items: stretch; }
+  .dsh-pagination-controls { justify-content: center; }
 }
 
 .dsh-agent {

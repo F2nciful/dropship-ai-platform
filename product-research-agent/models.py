@@ -21,7 +21,12 @@ class SearchProductsRequest(BaseModel):
         default_factory=lambda: ["aliexpress", "amazon", "ebay"],
         description="Which platform names to search (must be registered and active — see GET /api/platforms)",
     )
-    max_results: int = Field(default=10, ge=1, le=50, description="Max results per platform")
+    max_results: int = Field(
+        default=10, ge=1, le=1000,
+        description="Max results fetched per platform into the cached pool (not the page size)",
+    )
+    page: int = Field(default=1, ge=1, description="1-indexed page of (filtered/sorted) results to return")
+    page_size: int = Field(default=50, ge=1, le=100, description="Results per page")
     sort_by: Optional[str] = Field(
         default=None,
         description="One of: price_asc, price_desc, rating_desc, orders_desc, newest",
@@ -36,7 +41,9 @@ class SearchProductsRequest(BaseModel):
             "example": {
                 "query": "wireless earbuds",
                 "platforms": ["aliexpress", "amazon", "ebay"],
-                "max_results": 10,
+                "max_results": 200,
+                "page": 1,
+                "page_size": 50,
                 "sort_by": "price_asc",
                 "min_price": 5,
                 "max_price": 50,
@@ -68,6 +75,9 @@ class ScrapedProduct(BaseModel):
 class SearchProductsResponse(BaseModel):
     query: str
     total_results: int
+    current_page: int
+    total_pages: int
+    has_next_page: bool
     results: list[ScrapedProduct]
     errors: dict[str, str] = Field(default_factory=dict, description="Per-platform errors, if any")
 
@@ -76,6 +86,9 @@ class SearchProductsResponse(BaseModel):
             "example": {
                 "query": "wireless earbuds",
                 "total_results": 1,
+                "current_page": 1,
+                "total_pages": 1,
+                "has_next_page": False,
                 "results": [
                     {
                         "name": "Wireless Bluetooth Earbuds Pro",

@@ -28,7 +28,7 @@ const DEFAULT_SETTINGS = {
   defaultPage: 'dashboard',
   autoRefreshInterval: 15,
   defaultPlatforms: ['aliexpress', 'amazon', 'ebay'],
-  defaultMaxResults: 10,
+  defaultMaxResults: 200,
 };
 
 const ACCENT_PRESETS = [
@@ -42,7 +42,6 @@ const ACCENT_PRESETS = [
 
 const DEFAULT_PAGE_OPTIONS = [
   { value: 'dashboard', label: 'Dashboard' },
-  { value: 'agents', label: 'Agents' },
   { value: 'research', label: 'Products Research' },
   { value: 'products', label: 'Product Management' },
   { value: 'analytics', label: 'Analytics' },
@@ -219,7 +218,6 @@ const T = {
   }
 };
 
-const AGENT_ICONS = ['🔍', '📦', '💰', '📣', '🛒', '📊', '✉️', '🤖', '🎯', '⚙️', '🧠', '🚀'];
 
 const normalizeList = (data, key) => {
   if (Array.isArray(data)) return data;
@@ -268,20 +266,6 @@ const SkeletonManagerHero = () => (
       <div className="dsh-manager-actions">
         {[0, 1, 2].map(i => <SkelBlock key={i} w={110} h={40} radius={10} />)}
       </div>
-    </div>
-  </div>
-);
-
-const SkeletonAgentListItem = () => (
-  <div className="dsh-agent-list-item">
-    <SkelBlock w={40} h={40} radius={10} />
-    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 6 }}>
-      <SkelLine w="60%" h={14} />
-      <SkelLine w={60} h={16} radius={999} />
-    </div>
-    <div style={{ display: 'flex', gap: 6 }}>
-      <SkelBlock w={30} h={30} radius={8} />
-      <SkelBlock w={30} h={30} radius={8} />
     </div>
   </div>
 );
@@ -422,22 +406,18 @@ function Dashboard({ user, onLogout }) {
   const [page, setPage] = useState(() => loadSettings().defaultPage || 'dashboard');
   const [agents, setAgents] = useState([]);
   const [tasks, setTasks] = useState([]);
-  const [logs, setLogs] = useState([]);
+  const [, setLogs] = useState([]);
   const [backendUp, setBackendUp] = useState(true);
   const [loading, setLoading] = useState(true);
   const [refreshingAll, setRefreshingAll] = useState(false);
   const [logoutConfirmOpen, setLogoutConfirmOpen] = useState(false);
-  const [agentSearch, setAgentSearch] = useState('');
-  const [taskSearch, setTaskSearch] = useState('');
   const [autoRefresh, setAutoRefresh] = useState(true);
   const [toasts, setToasts] = useState([]);
-  const [selectedAgent, setSelectedAgent] = useState(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const toastId = useRef(0);
   const researchInputRef = useRef(null);
 
   const [notifications, setNotifications] = useState(loadNotifications);
-  const [notifCenterOpen, setNotifCenterOpen] = useState(false);
   const [shortcutsModalOpen, setShortcutsModalOpen] = useState(false);
   const [reportModal, setReportModal] = useState(null);
   const [reportLoading, setReportLoading] = useState(false);
@@ -452,6 +432,11 @@ function Dashboard({ user, onLogout }) {
   const [researchSearched, setResearchSearched] = useState(false);
   const [researchResults, setResearchResults] = useState([]);
   const [researchError, setResearchError] = useState(null);
+  const [researchPage, setResearchPage] = useState(1);
+  const [researchPageSize, setResearchPageSize] = useState(50);
+  const [researchTotalPages, setResearchTotalPages] = useState(1);
+  const [researchTotalResults, setResearchTotalResults] = useState(0);
+  const [researchPageInput, setResearchPageInput] = useState('1');
   const [productModal, setProductModal] = useState(null);
   const [productModalClosing, setProductModalClosing] = useState(false);
   const [analyzingProduct, setAnalyzingProduct] = useState(false);
@@ -536,26 +521,6 @@ function Dashboard({ user, onLogout }) {
     growth: 23,
     target: 3000
   });
-  const [alerts, setAlerts] = useState([
-    { id: 1, type: 'success', message: '✓ 12 products updated successfully', time: '14:32' },
-    { id: 2, type: 'warning', message: '⚠ 3 items low on inventory', time: '14:25' },
-    { id: 3, type: 'info', message: 'ℹ Manager coordinated 5 agents', time: '14:10' },
-  ]);
-  const [activities, setActivities] = useState([
-    { id: 1, agent: '📣 Marketing', action: 'Launched campaign for premium products', time: '14:35' },
-    { id: 2, agent: '💰 Pricing', action: 'Optimized pricing on 12 items', time: '14:32' },
-    { id: 3, agent: '📦 Inventory', action: 'Restocked 5 items below threshold', time: '14:28' },
-    { id: 4, agent: '👨‍💼 Manager', action: 'Synchronized all agent operations', time: '14:25' },
-  ]);
-
-  const [pausedAgents, setPausedAgents] = useState({});
-  const [settingsAgent, setSettingsAgent] = useState(null);
-  const [sidebarTab, setSidebarTab] = useState('overview');
-  const [visibleAgents, setVisibleAgents] = useState(() => {
-  const saved = localStorage.getItem('visibleAgents');
-  return saved ? JSON.parse(saved) : {};
-});
-
   const [analyticsData, setAnalyticsData] = useState({
     weeklyPerformance: [
       { day: 'Mon', efficiency: 85, tasks: 12, success: 95 },
@@ -589,29 +554,6 @@ function Dashboard({ user, onLogout }) {
       return next;
     });
   }, []);
-
-  const markNotificationRead = (id) => {
-    setNotifications(prev => {
-      const next = prev.map(n => (n.id === id ? { ...n, read: true } : n));
-      localStorage.setItem('dsh-notifications', JSON.stringify(next));
-      return next;
-    });
-  };
-
-  const markAllNotificationsRead = () => {
-    setNotifications(prev => {
-      const next = prev.map(n => ({ ...n, read: true }));
-      localStorage.setItem('dsh-notifications', JSON.stringify(next));
-      return next;
-    });
-  };
-
-  const clearAllNotifications = () => {
-    setNotifications([]);
-    localStorage.setItem('dsh-notifications', JSON.stringify([]));
-  };
-
-  const unreadNotifCount = notifications.filter(n => !n.read).length;
 
   useEffect(() => { if (page === 'usersettings') setSettingsDraft(appSettings); }, [page, appSettings]);
 
@@ -664,21 +606,6 @@ function Dashboard({ user, onLogout }) {
   }, [autoRefresh, appSettings.autoRefreshInterval, fetchAll]);
 
   useEffect(() => { localStorage.setItem('dsh-theme', dark ? 'dark' : 'light'); }, [dark]);
-  useEffect(() => {
-    localStorage.setItem('visibleAgents', JSON.stringify(visibleAgents));
-  }, [visibleAgents]);
-
-  useEffect(() => {
-    const saved = localStorage.getItem('visibleAgents');
-    if (saved) {
-      try {
-        setVisibleAgents(JSON.parse(saved));
-      } catch (e) {
-        console.error('Error loading visible agents:', e);
-        localStorage.removeItem('visibleAgents');
-      }
-    }
-  }, []);
 
   const agentStatus = (a) => (a.status || 'offline').toLowerCase();
   const activeCount = agents.filter(a => ['online', 'active', 'running', 'busy'].includes(agentStatus(a))).length;
@@ -712,16 +639,6 @@ function Dashboard({ user, onLogout }) {
 
   const hasPieData = (arr) => arr.some(d => d.value > 0);
 
-  const filteredAgents = workerAgents.filter(a => {
-    const name = (a.name || a.agent_name || '').toLowerCase();
-    const isVisible = visibleAgents[a.id] === true;
-    return name.includes(agentSearch.toLowerCase()) && isVisible;
-  });
-
-  const filteredTasks = tasks.filter(x => {
-    const title = (x.title || x.name || '').toLowerCase();
-    return title.includes(taskSearch.toLowerCase());
-  });
 
   const activeResearchFilterCount = [
     priceMin !== '' || priceMax !== '',
@@ -734,24 +651,6 @@ function Dashboard({ user, onLogout }) {
   const clearResearchFilters = () => {
     setPriceMin(''); setPriceMax(''); setMinRating(0); setSortBy(''); setInStockOnly(false);
   };
-
-  const filteredResearchResults = researchResults.filter(p => {
-    if (priceMin !== '' && (p.price == null || p.price < Number(priceMin))) return false;
-    if (priceMax !== '' && (p.price == null || p.price > Number(priceMax))) return false;
-    if (minRating > 0 && (p.rating == null || p.rating < minRating)) return false;
-    if (inStockOnly && p.in_stock === false) return false;
-    return true;
-  });
-
-  const sortedResearchResults = [...filteredResearchResults].sort((a, b) => {
-    switch (sortBy) {
-      case 'price_asc': return (a.price ?? Infinity) - (b.price ?? Infinity);
-      case 'price_desc': return (b.price ?? -Infinity) - (a.price ?? -Infinity);
-      case 'rating_desc': return (b.rating ?? -Infinity) - (a.rating ?? -Infinity);
-      case 'orders_desc': return (b.orders_count ?? -Infinity) - (a.orders_count ?? -Infinity);
-      case 'newest': default: return 0;
-    }
-  });
 
   const selectedProductCount = Object.keys(selectedProductIds).length;
   const allSavedSelected = savedProducts.length > 0 && savedProducts.every(p => selectedProductIds[p.id]);
@@ -768,19 +667,7 @@ function Dashboard({ user, onLogout }) {
 
   const savedCategories = [...new Set(savedProducts.map(p => p.category).filter(Boolean))];
 
-  const exportCSV = () => {
-    const rows = [['Name', 'Status', 'Type'], ...agents.map(a => [a.name || '', a.status || '', a.type || ''])];
-    const csv = rows.map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(',')).join('\n');
-    const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = 'agents.csv';
-    link.click();
-    URL.revokeObjectURL(url);
-  };
-
-  const searchResearchProducts = useCallback(async () => {
+  const runResearchSearch = useCallback(async (pageToFetch, pageSizeToUse) => {
     if (!researchQuery.trim()) return;
     const platforms = RESEARCH_PLATFORMS.filter(p => researchPlatforms[p.id]).map(p => p.id);
     if (platforms.length === 0) {
@@ -800,6 +687,8 @@ function Dashboard({ user, onLogout }) {
           query: researchQuery.trim(),
           platforms,
           max_results: appSettings.defaultMaxResults,
+          page: pageToFetch,
+          page_size: pageSizeToUse,
           sort_by: sortBy || null,
           min_price: priceMin !== '' ? Number(priceMin) : null,
           max_price: priceMax !== '' ? Number(priceMax) : null,
@@ -811,6 +700,10 @@ function Dashboard({ user, onLogout }) {
       const data = await res.json();
       const results = data.results || [];
       setResearchResults(results);
+      setResearchPage(data.current_page || 1);
+      setResearchTotalPages(data.total_pages || 1);
+      setResearchTotalResults(data.total_results || 0);
+      setResearchPageInput(String(data.current_page || 1));
       if (results.length === 0) showToast(t.noProductsFound, 'info');
       const failedPlatforms = Object.keys(data.errors || {});
       if (failedPlatforms.length > 0) {
@@ -819,12 +712,29 @@ function Dashboard({ user, onLogout }) {
     } catch {
       setResearchError(t.reachFailed);
       setResearchResults([]);
+      setResearchTotalPages(1);
+      setResearchTotalResults(0);
       showToast(t.reachFailed, 'error');
       addNotification('error', `Product search failed for "${researchQuery.trim()}"`);
     } finally {
       setResearchLoading(false);
     }
   }, [researchQuery, researchPlatforms, showToast, t, appSettings.defaultMaxResults, addNotification, sortBy, priceMin, priceMax, minRating, inStockOnly]);
+
+  const searchResearchProducts = useCallback(() => {
+    runResearchSearch(1, researchPageSize);
+  }, [runResearchSearch, researchPageSize]);
+
+  const goToResearchPage = useCallback((targetPage) => {
+    const clamped = Math.max(1, Math.min(targetPage, researchTotalPages));
+    if (clamped === researchPage || researchLoading) return;
+    runResearchSearch(clamped, researchPageSize);
+  }, [runResearchSearch, researchTotalPages, researchPage, researchPageSize, researchLoading]);
+
+  const changeResearchPageSize = useCallback((newSize) => {
+    setResearchPageSize(newSize);
+    if (researchSearched) runResearchSearch(1, newSize);
+  }, [runResearchSearch, researchSearched]);
 
   const openProductModal = (product, mode) => {
     setProductModal({ product, mode });
@@ -1544,54 +1454,7 @@ function Dashboard({ user, onLogout }) {
     setExportModalOpen(false);
   };
 
-  const togglePause = (agentId) => {
-    setPausedAgents(prev => ({
-      ...prev,
-      [agentId]: !prev[agentId]
-    }));
-    showToast(pausedAgents[agentId] ? 'Agent resumed' : 'Agent paused', 'info');
-  };
 
-  const handleOpenSettings = (agent) => {
-    setSettingsAgent(agent);
-  };
-
-  const handleSaveSettings = () => {
-    showToast('Settings saved successfully', 'success');
-    setSettingsAgent(null);
-  };
-
-const toggleAgentVisibility = useCallback((agentId) => {
-  setVisibleAgents(prev => {
-    const updated = { ...prev };
-    if (updated[agentId]) {
-      delete updated[agentId];
-    } else {
-      updated[agentId] = true;
-    }
-    return updated;
-  });
-}, []);
-
- const selectAllAgents = useCallback(() => {
-  if (agents.length === 0) {
-    showToast('No agents available', 'warning');
-    return;
-  }
-  const all = {};
-  agents.forEach(a => {
-    if (a.type !== 'manager') {
-      all[a.id] = true;
-    }
-  });
-  setVisibleAgents(all);
-  showToast('All agents selected', 'success');
-}, [agents, showToast]);
-
-const deselectAllAgents = useCallback(() => {
-  setVisibleAgents({});
-  showToast('All agents deselected', 'info');
-}, [showToast]);
   const StatusBadge = ({ status }) => {
     const st = (status || 'offline').toLowerCase();
     let cls = 'dsh-badge--off';
@@ -1637,13 +1500,10 @@ const deselectAllAgents = useCallback(() => {
 
   const NAV = [
     { id: 'dashboard', icon: '◈', label: t.dashboard },
-    { id: 'agents', icon: '🤖', label: t.agents },
-    { id: 'tasks', icon: '☑', label: t.tasks },
-    { id: 'logs', icon: '≣', label: t.logs },
-    { id: 'analytics', icon: '📊', label: 'Analytics' },
     { id: 'research', icon: '📦', label: t.productsResearch },
     { id: 'products', icon: '🛍️', label: 'Product Management' },
     { id: 'shopify', icon: '🛍️', label: 'Shopify Sync' },
+    { id: 'analytics', icon: '📊', label: 'Analytics' },
     { id: 'platforms', icon: '⚙️', label: t.platformSettings },
     { id: 'usersettings', icon: '⚙️', label: 'Settings' },
   ];
@@ -1651,17 +1511,15 @@ const deselectAllAgents = useCallback(() => {
   const closeAnyModal = useCallback(() => {
     if (logoutConfirmOpen) { setLogoutConfirmOpen(false); return; }
     if (shortcutsModalOpen) { setShortcutsModalOpen(false); return; }
-    if (notifCenterOpen) { setNotifCenterOpen(false); return; }
     if (exportModalOpen) { setExportModalOpen(false); return; }
     if (reportModal) { setReportModal(null); return; }
     if (bulkStockModalOpen) { setBulkStockModalOpen(false); return; }
     if (productModal) { closeProductModal(); return; }
     if (editingPlatform) { setEditingPlatform(null); return; }
-    if (settingsAgent) { setSettingsAgent(null); return; }
     if (selectedManagedProduct) { setSelectedManagedProduct(null); return; }
   }, [
-    logoutConfirmOpen, shortcutsModalOpen, notifCenterOpen, exportModalOpen, reportModal,
-    bulkStockModalOpen, productModal, editingPlatform, settingsAgent, selectedManagedProduct, closeProductModal,
+    logoutConfirmOpen, shortcutsModalOpen, exportModalOpen, reportModal,
+    bulkStockModalOpen, productModal, editingPlatform, selectedManagedProduct, closeProductModal,
   ]);
 
   useEffect(() => {
@@ -1718,15 +1576,16 @@ const deselectAllAgents = useCallback(() => {
         <div className="dsh-logo">
           <span className="dsh-logo-mark">◆</span>
           <span className="dsh-logo-text">Nexus</span>
-          <button
-            className="dsh-notif-bell"
-            onClick={() => setNotifCenterOpen(o => !o)}
-            title="Notifications"
-          >
-            🔔
-            {unreadNotifCount > 0 && <span className="dsh-notif-badge">{unreadNotifCount > 9 ? '9+' : unreadNotifCount}</span>}
-          </button>
         </div>
+
+        <button
+          className="dsh-btn dsh-btn--ghost dsh-side-refresh"
+          onClick={() => fetchAll(false)}
+          disabled={refreshingAll}
+          title="Refresh all data"
+        >
+          {refreshingAll ? <span className="dsh-spinner" /> : '⟳'} {t.refresh}
+        </button>
 
         <div className="dsh-profit-ticker">
           <div className="dsh-profit-label">💰 Daily Revenue</div>
@@ -1742,93 +1601,6 @@ const deselectAllAgents = useCallback(() => {
             </button>
           ))}
         </nav>
-
-        <div className="dsh-tabs">
-          <button className={`dsh-tab ${sidebarTab === 'overview' ? 'dsh-tab--active' : ''}`} onClick={() => setSidebarTab('overview')}>
-            📊 Overview
-          </button>
-          <button className={`dsh-tab ${sidebarTab === 'alerts' ? 'dsh-tab--active' : ''}`} onClick={() => setSidebarTab('alerts')}>
-            🔔 Alerts
-          </button>
-          <button className={`dsh-tab ${sidebarTab === 'settings' ? 'dsh-tab--active' : ''}`} onClick={() => setSidebarTab('settings')}>
-            ⚙️ Settings
-          </button>
-        </div>
-
-        {sidebarTab === 'overview' && (
-          <div className="dsh-side-stats">
-            <div className="dsh-side-stat">
-              <span className="dsh-side-stat-label">🤖 All Agents</span>
-              <span className="dsh-side-stat-value">{agents.length}</span>
-            </div>
-            <div className="dsh-side-stat">
-              <span className="dsh-side-stat-label">⚡ Working</span>
-              <span className="dsh-side-stat-value">{activeCount}</span>
-            </div>
-          </div>
-        )}
-
-        {sidebarTab === 'alerts' && (
-          <>
-            <div className="dsh-alert-center">
-              <div className="dsh-alert-header">
-                <span>🔔 System Alerts</span>
-                <div className="dsh-alert-badge">{alerts.length}</div>
-              </div>
-              <div className="dsh-alert-list">
-                {alerts.map(alert => (
-                  <div key={alert.id} className="dsh-alert-item">
-                    <div className={`dsh-alert-dot dsh-alert-dot--${alert.type}`} />
-                    <div className="dsh-alert-text">{alert.message}</div>
-                    <div className="dsh-alert-time">{alert.time}</div>
-                  </div>
-                ))}
-              </div>
-            </div>
-            <div className="dsh-activity-feed">
-              <div className="dsh-activity-header">
-                <div className="dsh-activity-dot" />
-                Real-time Activity
-              </div>
-              <div className="dsh-activity-list">
-                {activities.map(act => (
-                  <div key={act.id} className="dsh-activity-item">
-                    <div className="dsh-activity-agent">{act.agent}</div>
-                    <div className="dsh-activity-action">{act.action}</div>
-                    <div className="dsh-activity-time">{act.time}</div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </>
-        )}
-
-        {sidebarTab === 'settings' && (
-          <div style={{ paddingTop: 8 }}>
-            <div style={{ fontSize: 12, fontWeight: 700, textTransform: 'uppercase', color: 'var(--text2)', marginBottom: 10 }}>
-              Manage Agents
-            </div>
-            <div className="dsh-agent-list">
-              {workerAgents.map(agent => (
-                <div key={agent.id} className="dsh-agent-item">
-                  <input 
-  type="checkbox" 
-  id={`agent-${agent.id}`}
-  checked={visibleAgents[agent.id] === true}
-  onChange={() => toggleAgentVisibility(agent.id)}
-/>
-                  <label htmlFor={`agent-${agent.id}`}>{agent.name}</label>
-                </div>
-              ))}
-            </div>
-            <button className="dsh-agent-controls-btn" onClick={selectAllAgents}>
-              ✓ Select All
-            </button>
-            <button className="dsh-agent-controls-btn" onClick={deselectAllAgents}>
-              ✕ Clear All
-            </button>
-          </div>
-        )}
 
         <div className="dsh-side-footer">
           <button className="dsh-logout-btn" onClick={() => setLogoutConfirmOpen(true)}>
@@ -1846,14 +1618,6 @@ const deselectAllAgents = useCallback(() => {
             <p className="dsh-sub dsh-sub--animated" key={headerDescription}>{headerDescription}</p>
           </div>
           <div className="dsh-header-actions">
-            <button
-              className="dsh-btn dsh-btn--ghost"
-              onClick={() => fetchAll(false)}
-              disabled={refreshingAll}
-              title="Refresh all data"
-            >
-              {refreshingAll ? <span className="dsh-spinner" /> : '⟳'} {t.refresh}
-            </button>
             <button className="dsh-icon-btn" onClick={() => setDark(!dark)} title="Toggle theme">
               {dark ? '☀️' : '🌙'}
             </button>
@@ -1932,112 +1696,6 @@ const deselectAllAgents = useCallback(() => {
                 </div>
               </div>
             )}
-          </section>
-        )}
-
-        {(page === 'agents') && (
-          <section className="dsh-section">
-            {loading ? <SkeletonManagerHero /> : managerAgent && (
-              <div className="dsh-manager-hero">
-                <div className="dsh-manager-content">
-                  <div className="dsh-manager-header">
-                    <div className="dsh-manager-icon">👨‍💼</div>
-                    <div className="dsh-manager-info">
-                      <h2 className="dsh-manager-name">{managerAgent.name}</h2>
-                      <p className="dsh-manager-role">{managerAgent.role || t.manager}</p>
-                    </div>
-                    <StatusBadge status={managerAgent.status} />
-                  </div>
-                  <div className="dsh-manager-stats">
-                    <div className="dsh-manager-stat">
-                      <span className="dsh-manager-stat-label">{t.coordinating}</span>
-                      <span className="dsh-manager-stat-value">{managerAgent.coordinating || 11}</span>
-                    </div>
-                    <div className="dsh-manager-stat">
-                      <span className="dsh-manager-stat-label">{t.tasksRunning}</span>
-                      <span className="dsh-manager-stat-value">{managerAgent.tasks_running || 5}</span>
-                    </div>
-                    <div className="dsh-manager-stat">
-                      <span className="dsh-manager-stat-label">{t.uptime}</span>
-                      <span className="dsh-manager-stat-value">{managerAgent.uptime || '99.8%'}</span>
-                    </div>
-                  </div>
-                  <div className="dsh-manager-actions">
-                    <button className="dsh-btn dsh-btn--primary">▶ {t.details}</button>
-                    <button className="dsh-btn dsh-btn--ghost">⏸ Pause</button>
-                    <button className="dsh-btn dsh-btn--ghost">⚙ Settings</button>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            <div className="dsh-section-head">
-              <h2>{t.agents}</h2>
-              <div className="dsh-tools">
-                <input className="dsh-input" placeholder={t.searchAgents} value={agentSearch} onChange={e => setAgentSearch(e.target.value)} />
-                <button className="dsh-btn dsh-btn--ghost" onClick={exportCSV}>⬇ {t.exportCSV}</button>
-              </div>
-            </div>
-
-            <div className="dsh-agents-layout">
-              <div className="dsh-agents-list-panel">
-                <div className="dsh-agents-list-scroll">
-                  {loading ? (
-                    [...Array(6)].map((_, i) => <SkeletonAgentListItem key={i} />)
-                  ) : filteredAgents.length === 0 ? (
-                    agentSearch.trim() ? (
-                      <EmptyState
-                        icon="🔍"
-                        title={t.noResultsTitle}
-                        subtitle={t.noResultsSub}
-                        action={<button className="dsh-btn dsh-btn--ghost" onClick={() => setAgentSearch('')}>{t.clearSearch}</button>}
-                      />
-                    ) : (
-                      <EmptyState
-                        icon="🤖"
-                        title={t.noAgentsTitle}
-                        subtitle={t.noAgentsSub}
-                        action={<button className="dsh-btn dsh-btn--primary" onClick={() => fetchAll(false)}>⟳ {t.refresh}</button>}
-                      />
-                    )
-                  ) : (
-                    filteredAgents.map((a, i) => (
-                      <div
-                        key={a.id || i}
-                        className={`dsh-agent-list-item ${selectedAgent?.id === a.id ? 'dsh-agent-list-item--selected' : ''} ${pausedAgents[a.id] ? 'dsh-agent-list-item--paused' : ''}`}
-                        onClick={() => setSelectedAgent(a)}
-                      >
-                        <span className="dsh-agent-avatar dsh-agent-avatar--sm">{AGENT_ICONS[i % AGENT_ICONS.length]}</span>
-                        <div className="dsh-agent-list-info">
-                          <div className="dsh-agent-list-name">{a.name || a.agent_name || 'Agent'}</div>
-                          <StatusBadge status={pausedAgents[a.id] ? 'paused' : a.status} />
-                        </div>
-                        <div className="dsh-agent-list-actions" onClick={(e) => e.stopPropagation()}>
-                          <button
-                            className="dsh-agent-btn dsh-agent-btn--pause dsh-agent-btn--icon"
-                            title={pausedAgents[a.id] ? t.resume : t.pause}
-                            onClick={() => togglePause(a.id)}
-                          >
-                            {pausedAgents[a.id] ? '▶' : '⏸'}
-                          </button>
-                          <button
-                            className="dsh-agent-btn dsh-agent-btn--settings dsh-agent-btn--icon"
-                            title={t.settings}
-                            onClick={() => handleOpenSettings(a)}
-                          >
-                            ⚙
-                          </button>
-                        </div>
-                      </div>
-                    ))
-                  )}
-                </div>
-              </div>
-
-              <div className="dsh-agents-detail-panel">
-                <EmptyState icon="🤖" title={t.selectAgentTitle} subtitle={t.selectAgentSub} />
-              </div>
-            </div>
           </section>
         )}
 
@@ -2163,7 +1821,7 @@ const deselectAllAgents = useCallback(() => {
               </div>
             )}
 
-            {researchLoading ? (
+            {researchLoading && researchResults.length === 0 ? (
               <div className="dsh-grid">{[0, 1, 2, 3, 4, 5].map(i => <SkeletonProductCard key={i} />)}</div>
             ) : researchError ? (
               <EmptyState
@@ -2175,56 +1833,109 @@ const deselectAllAgents = useCallback(() => {
             ) : !researchSearched ? (
               <EmptyState icon="📦" title={t.searchPromptTitle} subtitle={t.searchPromptSub} />
             ) : researchResults.length === 0 ? (
-              <EmptyState icon="🔍" title={t.noProductsTitle} subtitle={t.noProductsSub} />
-            ) : sortedResearchResults.length === 0 ? (
               <EmptyState
                 icon="🔍"
-                title="No Matches"
-                subtitle="No products match the current filters"
-                action={<button className="dsh-btn dsh-btn--ghost" onClick={clearResearchFilters}>✕ Clear Filters</button>}
+                title={t.noProductsTitle}
+                subtitle={t.noProductsSub}
+                action={hasActiveResearchFilters ? (
+                  <button className="dsh-btn dsh-btn--ghost" onClick={clearResearchFilters}>✕ Clear Filters</button>
+                ) : undefined}
               />
             ) : (
-              <div className="dsh-grid">
-                {sortedResearchResults.map((p, i) => (
-                  <div
-                    key={p.url || `${p.platform}-${i}`}
-                    className="dsh-product-card"
-                    onClick={() => openProductModal(p, 'research')}
-                  >
-                    <div className="dsh-product-image">
-                      {p.image_url ? (
-                        <img src={p.image_url} alt={p.name} onError={e => { e.target.style.display = 'none'; }} />
-                      ) : (
-                        <span>📦</span>
-                      )}
-                    </div>
-                    <div className="dsh-product-badges">
-                      <span className="dsh-badge dsh-badge--off">{p.platform}</span>
-                      <span className={`dsh-badge ${p.in_stock === false ? 'dsh-badge--err' : 'dsh-badge--on'}`}>
-                        <span className="dsh-dot" />{p.in_stock === false ? t.outOfStock : t.inStock}
-                      </span>
-                    </div>
-                    <h3 className="dsh-product-name" title={p.name}>{p.name}</h3>
-                    <div className="dsh-product-meta">
-                      <span className="dsh-product-price">
-                        {p.price != null ? `${p.currency || 'USD'} ${Number(p.price).toFixed(2)}` : '—'}
-                      </span>
-                      {p.rating != null && (
-                        <span className="dsh-product-rating">
-                          ⭐ {Number(p.rating).toFixed(1)}{p.reviews_count ? ` (${p.reviews_count})` : ''}
-                        </span>
-                      )}
-                    </div>
-                    <button
-                      className="dsh-btn dsh-btn--primary dsh-product-add-btn"
-                      onClick={(e) => { e.stopPropagation(); openProductModal(p, 'research'); }}
-                      disabled={p._added}
+              <>
+                <div className="dsh-grid">
+                  {researchResults.map((p, i) => (
+                    <div
+                      key={p.url || `${p.platform}-${i}`}
+                      className="dsh-product-card"
+                      onClick={() => openProductModal(p, 'research')}
                     >
-                      {p._added ? '✓ Added' : `+ ${t.addToShop}`}
+                      <div className="dsh-product-image">
+                        {p.image_url ? (
+                          <img src={p.image_url} alt={p.name} onError={e => { e.target.style.display = 'none'; }} />
+                        ) : (
+                          <span>📦</span>
+                        )}
+                      </div>
+                      <div className="dsh-product-badges">
+                        <span className="dsh-badge dsh-badge--off">{p.platform}</span>
+                        <span className={`dsh-badge ${p.in_stock === false ? 'dsh-badge--err' : 'dsh-badge--on'}`}>
+                          <span className="dsh-dot" />{p.in_stock === false ? t.outOfStock : t.inStock}
+                        </span>
+                      </div>
+                      <h3 className="dsh-product-name" title={p.name}>{p.name}</h3>
+                      <div className="dsh-product-meta">
+                        <span className="dsh-product-price">
+                          {p.price != null ? `${p.currency || 'USD'} ${Number(p.price).toFixed(2)}` : '—'}
+                        </span>
+                        {p.rating != null && (
+                          <span className="dsh-product-rating">
+                            ⭐ {Number(p.rating).toFixed(1)}{p.reviews_count ? ` (${p.reviews_count})` : ''}
+                          </span>
+                        )}
+                      </div>
+                      <button
+                        className="dsh-btn dsh-btn--primary dsh-product-add-btn"
+                        onClick={(e) => { e.stopPropagation(); openProductModal(p, 'research'); }}
+                        disabled={p._added}
+                      >
+                        {p._added ? '✓ Added' : `+ ${t.addToShop}`}
+                      </button>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="dsh-pagination">
+                  <div className="dsh-pagination-summary">
+                    {researchLoading ? (
+                      <><span className="dsh-spinner" /> Loading…</>
+                    ) : (
+                      `Showing ${(researchPage - 1) * researchPageSize + 1}-${Math.min(researchPage * researchPageSize, researchTotalResults)} of ${researchTotalResults.toLocaleString()}`
+                    )}
+                  </div>
+                  <div className="dsh-pagination-controls">
+                    <button
+                      className="dsh-btn dsh-btn--ghost"
+                      onClick={() => goToResearchPage(researchPage - 1)}
+                      disabled={researchLoading || researchPage <= 1}
+                    >
+                      ‹ Previous
+                    </button>
+                    <span className="dsh-pagination-page">
+                      Page
+                      <input
+                        type="number"
+                        className="dsh-input dsh-pagination-page-input"
+                        min={1}
+                        max={researchTotalPages}
+                        value={researchPageInput}
+                        onChange={e => setResearchPageInput(e.target.value)}
+                        onKeyDown={e => { if (e.key === 'Enter') goToResearchPage(Number(researchPageInput) || 1); }}
+                        onBlur={() => goToResearchPage(Number(researchPageInput) || 1)}
+                      />
+                      of {researchTotalPages.toLocaleString()}
+                    </span>
+                    <button
+                      className="dsh-btn dsh-btn--ghost"
+                      onClick={() => goToResearchPage(researchPage + 1)}
+                      disabled={researchLoading || researchPage >= researchTotalPages}
+                    >
+                      Next ›
                     </button>
                   </div>
-                ))}
-              </div>
+                  <div className="dsh-pagination-page-size">
+                    <label htmlFor="research-page-size">Per page</label>
+                    <select
+                      id="research-page-size"
+                      className="dsh-settings-select"
+                      value={researchPageSize}
+                      onChange={e => changeResearchPageSize(Number(e.target.value))}
+                    >
+                      {[10, 25, 50, 100].map(n => <option key={n} value={n}>{n}</option>)}
+                    </select>
+                  </div>
+                </div>
+              </>
             )}
           </section>
         )}
@@ -3171,16 +2882,20 @@ const deselectAllAgents = useCallback(() => {
                   </div>
                 </div>
                 <div className="dsh-settings-section">
-                  <div className="dsh-settings-label">Default Max Results</div>
+                  <div className="dsh-settings-label">Max Results Fetched Per Platform</div>
+                  <div className="dsh-settings-item-desc">
+                    How many results to pull into the searchable pool per platform — pagination pages
+                    through this pool, so a higher number means more pages, not a bigger initial load.
+                  </div>
                   <input
                     type="number"
                     min={1}
-                    max={50}
+                    max={1000}
                     className="dsh-input dsh-filter-num"
                     value={settingsDraft.defaultMaxResults}
                     onChange={e => setSettingsDraft(s => ({
                       ...s,
-                      defaultMaxResults: Math.max(1, Math.min(50, Number(e.target.value) || 1)),
+                      defaultMaxResults: Math.max(1, Math.min(1000, Number(e.target.value) || 1)),
                     }))}
                   />
                 </div>
@@ -3191,50 +2906,6 @@ const deselectAllAgents = useCallback(() => {
               <button className="dsh-btn dsh-btn--primary" onClick={saveSettings}>✓ Save Settings</button>
               <button className="dsh-btn dsh-btn--ghost" onClick={resetSettingsDraft}>↺ Reset to Defaults</button>
             </div>
-          </section>
-        )}
-
-        {page === 'tasks' && (
-          <section className="dsh-section">
-            <div className="dsh-section-head">
-              <h2>{t.tasks}</h2>
-              <input className="dsh-input" placeholder={t.searchTasks} value={taskSearch} onChange={e => setTaskSearch(e.target.value)} />
-            </div>
-            {loading ? (
-              <div className="dsh-list">{[0, 1, 2, 3, 4].map(i => <SkeletonTaskRow key={i} />)}</div>
-            ) : filteredTasks.length === 0 ? (
-              <EmptyState
-                icon="✅"
-                title={t.noTasksTitle}
-                subtitle={t.noTasksSub}
-                action={<button className="dsh-btn dsh-btn--ghost" onClick={() => fetchAll(false)}>⟳ {t.refresh}</button>}
-              />
-            ) : (
-              <div className="dsh-list">
-                {filteredTasks.map((x, i) => (
-                  <div key={x.id || i} className="dsh-row">
-                    <div className="dsh-row-main">
-                      <strong>{x.title || x.name || 'Task'}</strong>
-                      <span className="dsh-row-sub">{x.description || ''}</span>
-                    </div>
-                    <StatusBadge status={x.status} />
-                  </div>
-                ))}
-              </div>
-            )}
-          </section>
-        )}
-
-        {page === 'logs' && (
-          <section className="dsh-section">
-            <h2>{t.logs}</h2>
-            {logs.length === 0 ? (
-              <EmptyState icon="📭" title={t.noLogsTitle} subtitle={t.noLogsSub} />
-            ) : (
-              <div className="dsh-logs">
-                {logs.map((x, i) => <div key={x.id || i} className={`dsh-log dsh-log--${x.level || 'info'}`}><span className="dsh-log-lvl">{(x.level || 'INFO').toUpperCase()}</span><span className="dsh-log-msg">{x.message || x.msg || ''}</span></div>)}
-              </div>
-            )}
           </section>
         )}
 
@@ -3385,94 +3056,6 @@ const deselectAllAgents = useCallback(() => {
           </section>
         )}
       </main>
-
-      {notifCenterOpen && (
-        <>
-          <div className="dsh-notif-overlay" onClick={() => setNotifCenterOpen(false)} />
-          <div className="dsh-notif-panel dsh-notif-panel--floating">
-            <div className="dsh-notif-panel-header">
-              <span>Notifications</span>
-              <div className="dsh-notif-panel-actions">
-                <button onClick={markAllNotificationsRead} disabled={unreadNotifCount === 0}>Mark all read</button>
-                <button onClick={clearAllNotifications} disabled={notifications.length === 0}>Clear all</button>
-              </div>
-            </div>
-            <div className="dsh-notif-list">
-              {notifications.length === 0 ? (
-                <div className="dsh-notif-empty">No notifications yet</div>
-              ) : (
-                notifications.map(n => (
-                  <div
-                    key={n.id}
-                    className={`dsh-notif-item dsh-notif-item--${n.type} ${n.read ? '' : 'dsh-notif-item--unread'}`}
-                    onClick={() => markNotificationRead(n.id)}
-                  >
-                    <span className="dsh-notif-icon">{NOTIF_ICONS[n.type] || 'ℹ'}</span>
-                    <div className="dsh-notif-body">
-                      <div className="dsh-notif-message">{n.message}</div>
-                      <div className="dsh-notif-time">{formatRelativeTime(n.time)}</div>
-                    </div>
-                    {!n.read && <span className="dsh-notif-dot" />}
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
-        </>
-      )}
-
-      {settingsAgent && (
-        <div className="dsh-modal-back" onClick={() => setSettingsAgent(null)}>
-          <div className="dsh-modal" onClick={e => e.stopPropagation()}>
-            <div className="dsh-settings-modal">
-              <h3>⚙ Configure: {settingsAgent.name}</h3>
-              
-              <div className="dsh-settings-section">
-                <div className="dsh-settings-label">Operation Mode</div>
-                <div className="dsh-settings-item">
-                  <div className="dsh-settings-item-text">
-                    <div className="dsh-settings-item-name">Auto Mode</div>
-                    <div className="dsh-settings-item-desc">Enable automatic operations</div>
-                  </div>
-                  <label className="dsh-toggle">
-                    <input type="checkbox" defaultChecked />
-                    <span className="dsh-toggle-slider" />
-                  </label>
-                </div>
-                <div className="dsh-settings-item">
-                  <div className="dsh-settings-item-text">
-                    <div className="dsh-settings-item-name">Smart Alerts</div>
-                    <div className="dsh-settings-item-desc">Receive notifications for actions</div>
-                  </div>
-                  <label className="dsh-toggle">
-                    <input type="checkbox" defaultChecked />
-                    <span className="dsh-toggle-slider" />
-                  </label>
-                </div>
-              </div>
-
-              <div className="dsh-settings-section">
-                <div className="dsh-settings-label">Priority Level</div>
-                <select className="dsh-settings-select">
-                  <option>Low</option>
-                  <option selected>Medium</option>
-                  <option>High</option>
-                  <option>Critical</option>
-                </select>
-              </div>
-
-              <div className="dsh-settings-actions">
-                <button className="dsh-btn dsh-btn--primary" onClick={handleSaveSettings}>
-                  ✓ Save
-                </button>
-                <button className="dsh-btn dsh-btn--ghost" onClick={() => setSettingsAgent(null)}>
-                  Cancel
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
 
       {productModal && (
         <ProductDetailModal

@@ -11,6 +11,8 @@ Designed to be consumed by the Nexus React dashboard.
 """
 import json
 import logging
+import math
+import threading
 import time
 from contextlib import asynccontextmanager
 
@@ -165,31 +167,27 @@ def health_check():
 
 # ─────────────────────────── Search ───────────────────────────
 
-@app.post(
-    "/api/search-products",
-    response_model=SearchProductsResponse,
-    tags=["products"],
-    summary="Search products across platforms",
-)
-def search_products(payload: SearchProductsRequest, db: Session = Depends(get_db)):
-    """
-    Search the requested platforms for `query` and return normalized results — a raw
-    multi-platform browse, not tied to the saved-product schema. Once the user picks one
-    result to onboard, hand it to POST /api/manager/analyze-product for the full pipeline.
+# Caches the raw combined scrape (pre filter/sort/paginate) per (query, platforms,
+# max_results), so changing sort/filters/page against the same search never re-scrapes —
+# it just re-slices this in-memory list. Deliberately simple (no Redis/external cache
+# elsewhere in this codebase); a lock guards against two requests racing on the same key.
+_SEARCH_CACHE_TTL_SECONDS = 600
+_search_cache: dict[tuple, tuple[float, list[ScrapedProduct], dict[str, str]]] = {}
+_search_cache_lock = threading.Lock()
 
-    Platforms can be any mix of built-ins (aliexpress/amazon/ebay) and custom
-    platforms registered via /api/platforms — each is looked up in the platforms
-    table and must exist and be active. A failure scraping one platform never
-    fails the whole request: it's reported per-platform in `errors`, and results
-    from the other platforms are still returned.
 
-    If `settings.scrape_mock_fallback` is enabled and a platform comes back with
-    no real results (blocked, timed out, errored — or genuinely found nothing),
-    clearly-labeled placeholder listings fill in instead of leaving it empty.
-    `errors` is still populated in that case so callers always know real
-    scraping didn't succeed — mock data is never silently passed off as real.
-    """
-    start_time = time.monotonic()
+def _search_cache_key(payload: SearchProductsRequest) -> tuple:
+    return (payload.query.strip().lower(), tuple(sorted(payload.platforms)), payload.max_results)
+
+
+def _scrape_combined(payload: SearchProductsRequest, db: Session) -> tuple[list[ScrapedProduct], dict[str, str]]:
+    """Run every requested platform's scraper and combine results. A failure scraping one
+    platform never fails the whole request: it's reported per-platform in `errors`, and
+    results from the other platforms are still returned. If `settings.scrape_mock_fallback`
+    is enabled and a platform comes back with no real results (blocked, timed out, errored —
+    or genuinely found nothing), clearly-labeled placeholder listings fill in instead of
+    leaving it empty; `errors` is still populated so callers always know real scraping
+    didn't succeed."""
     results: list[ScrapedProduct] = []
     errors: dict[str, str] = {}
 
@@ -235,13 +233,63 @@ def search_products(payload: SearchProductsRequest, db: Session = Depends(get_db
 
         results.extend(ScrapedProduct(**item) for item in raw_results)
 
-    results = _filter_and_sort_results(results, payload)
+    return results, errors
+
+
+@app.post(
+    "/api/search-products",
+    response_model=SearchProductsResponse,
+    tags=["products"],
+    summary="Search products across platforms",
+)
+def search_products(payload: SearchProductsRequest, db: Session = Depends(get_db)):
+    """
+    Search the requested platforms for `query` and return a paginated page of normalized
+    results — a raw multi-platform browse, not tied to the saved-product schema. Once the
+    user picks one result to onboard, hand it to POST /api/manager/analyze-product for the
+    full pipeline.
+
+    The underlying scrape (across all platforms, up to `max_results` each) is cached for
+    `_SEARCH_CACHE_TTL_SECONDS` per (query, platforms, max_results); `sort_by`/`min_price`/
+    `max_price`/`min_rating`/`in_stock_only`/`page`/`page_size` are re-applied on every
+    request against that cached pool, so paging through — or re-sorting/re-filtering — the
+    same search is fast and never re-scrapes.
+    """
+    start_time = time.monotonic()
+    cache_key = _search_cache_key(payload)
+    now = time.monotonic()
+
+    with _search_cache_lock:
+        cached = _search_cache.get(cache_key)
+    if cached and now - cached[0] < _SEARCH_CACHE_TTL_SECONDS:
+        raw_results, errors = cached[1], cached[2]
+    else:
+        raw_results, errors = _scrape_combined(payload, db)
+        with _search_cache_lock:
+            _search_cache[cache_key] = (now, raw_results, errors)
+
+    filtered = _filter_and_sort_results(raw_results, payload)
+    total_results = len(filtered)
+    total_pages = max(1, math.ceil(total_results / payload.page_size))
+    current_page = min(payload.page, total_pages)
+    page_start = (current_page - 1) * payload.page_size
+    page_results = filtered[page_start:page_start + payload.page_size]
+
     logger.info(
-        "Combined search for %r across %s platform(s) took %.1fs, %s total result(s)",
-        payload.query, len(payload.platforms), time.monotonic() - start_time, len(results),
+        "Search for %r across %s platform(s) took %.1fs, %s total result(s), page %s/%s",
+        payload.query, len(payload.platforms), time.monotonic() - start_time,
+        total_results, current_page, total_pages,
     )
 
-    return SearchProductsResponse(query=payload.query, total_results=len(results), results=results, errors=errors)
+    return SearchProductsResponse(
+        query=payload.query,
+        total_results=total_results,
+        current_page=current_page,
+        total_pages=total_pages,
+        has_next_page=current_page < total_pages,
+        results=page_results,
+        errors=errors,
+    )
 
 
 def _filter_and_sort_results(

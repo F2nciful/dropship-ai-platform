@@ -61,7 +61,9 @@ class Settings(BaseSettings):
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
         "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
     )
-    scrape_max_pages: int = 3
+    # Raised from 3 so a larger requested max_results can actually be satisfied by walking
+    # more real search-result pages (aliexpress/amazon scrapers loop up to this many pages).
+    scrape_max_pages: int = 20
     # Amazon renders search results behind heavy bot detection; when the plain HTTP
     # request comes back blocked/empty, optionally fall back to a headless-Chrome
     # (Selenium) render of the same page before giving up. Off by default since it
