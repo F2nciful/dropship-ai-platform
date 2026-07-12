@@ -1597,10 +1597,21 @@
   min-width: 220px;
 }
 
+.dsh-research-scope {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
 .dsh-platform-checks {
   display: flex;
   flex-wrap: wrap;
   gap: 10px;
+}
+
+.dsh-platform-checks--research {
+  margin-bottom: 20px;
 }
 
 .dsh-platform-check {

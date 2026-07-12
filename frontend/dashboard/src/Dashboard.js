@@ -11,6 +11,13 @@ const RESEARCH_PLATFORMS = [
   { id: 'ebay', label: 'eBay' },
 ];
 
+// Built-in platforms are checked by default in "Specific Stores" mode; any other
+// registered platform (custom ones like Alibaba/Etsy/Others a user adds via the
+// Platforms page) shows up unchecked/optional.
+const DEFAULT_CHECKED_PLATFORMS = ['aliexpress', 'amazon', 'ebay'];
+const PLATFORM_LABELS = RESEARCH_PLATFORMS.reduce((acc, p) => ({ ...acc, [p.id]: p.label }), {});
+const platformLabel = (name) => PLATFORM_LABELS[name] || (name.charAt(0).toUpperCase() + name.slice(1));
+
 const PREDEFINED_PLATFORMS = [
   { name: 'shopify', url: 'https://your-store.myshopify.com', label: 'Shopify' },
   { name: 'woocommerce', url: 'https://your-store.example.com', label: 'WooCommerce' },
@@ -424,8 +431,15 @@ function Dashboard({ user, onLogout }) {
 
   // ── Product Management: raw multi-platform search (left panel "Search New" sub-mode) ──
   const [researchQuery, setResearchQuery] = useState('');
+  // 'all' = search every active registered platform ("search entire web"); 'custom' = only
+  // the checked stores below. Both are remembered in localStorage as a user preference.
+  const [researchScope, setResearchScope] = useState(() => localStorage.getItem('dsh-research-scope') || 'all');
   const [researchPlatforms, setResearchPlatforms] = useState(() => {
-    const defaults = loadSettings().defaultPlatforms || ['aliexpress', 'amazon', 'ebay'];
+    try {
+      const saved = JSON.parse(localStorage.getItem('dsh-research-platforms') || 'null');
+      if (saved && typeof saved === 'object') return saved;
+    } catch { /* fall through to defaults */ }
+    const defaults = loadSettings().defaultPlatforms || DEFAULT_CHECKED_PLATFORMS;
     return RESEARCH_PLATFORMS.reduce((acc, p) => ({ ...acc, [p.id]: defaults.includes(p.id) }), {});
   });
   const [researchLoading, setResearchLoading] = useState(false);
@@ -667,10 +681,20 @@ function Dashboard({ user, onLogout }) {
 
   const savedCategories = [...new Set(savedProducts.map(p => p.category).filter(Boolean))];
 
+  // Checkbox options for "Specific Stores" mode: every active registered platform (built-in
+  // AliExpress/Amazon/eBay plus any custom store — Alibaba, Etsy, others — the user has added
+  // via the Platforms page), falling back to the 3 built-ins before that list has loaded.
+  const researchStoreOptions = platforms.length > 0
+    ? platforms.filter(p => p.is_active).map(p => ({ id: p.name, label: platformLabel(p.name) }))
+    : RESEARCH_PLATFORMS;
+
   const runResearchSearch = useCallback(async (pageToFetch, pageSizeToUse) => {
     if (!researchQuery.trim()) return;
-    const platforms = RESEARCH_PLATFORMS.filter(p => researchPlatforms[p.id]).map(p => p.id);
-    if (platforms.length === 0) {
+    const storeOptions = platforms.length > 0
+      ? platforms.filter(p => p.is_active).map(p => p.name)
+      : RESEARCH_PLATFORMS.map(p => p.id);
+    const selectedPlatforms = storeOptions.filter(name => researchPlatforms[name]);
+    if (researchScope === 'custom' && selectedPlatforms.length === 0) {
       showToast(t.selectPlatform, 'warning');
       return;
     }
@@ -685,7 +709,8 @@ function Dashboard({ user, onLogout }) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           query: researchQuery.trim(),
-          platforms,
+          search_scope: researchScope,
+          platforms: selectedPlatforms,
           max_results: appSettings.defaultMaxResults,
           page: pageToFetch,
           page_size: pageSizeToUse,
@@ -719,7 +744,7 @@ function Dashboard({ user, onLogout }) {
     } finally {
       setResearchLoading(false);
     }
-  }, [researchQuery, researchPlatforms, showToast, t, appSettings.defaultMaxResults, addNotification, sortBy, priceMin, priceMax, minRating, inStockOnly]);
+  }, [researchQuery, researchPlatforms, researchScope, platforms, showToast, t, appSettings.defaultMaxResults, addNotification, sortBy, priceMin, priceMax, minRating, inStockOnly]);
 
   const searchResearchProducts = useCallback(() => {
     runResearchSearch(1, researchPageSize);
@@ -764,6 +789,29 @@ function Dashboard({ user, onLogout }) {
   }, []);
 
   useEffect(() => { fetchPlatforms(); }, [fetchPlatforms]);
+
+  // Persist the "search entire web" vs "specific stores" choice, and which stores are
+  // checked, so it survives a page reload.
+  useEffect(() => { localStorage.setItem('dsh-research-scope', researchScope); }, [researchScope]);
+  useEffect(() => {
+    localStorage.setItem('dsh-research-platforms', JSON.stringify(researchPlatforms));
+  }, [researchPlatforms]);
+
+  // Whenever the registered-platforms list loads (or a custom platform is added), make
+  // sure it has a checkbox entry — unchecked by default unless it's one of the built-ins.
+  useEffect(() => {
+    setResearchPlatforms(prev => {
+      let changed = false;
+      const next = { ...prev };
+      for (const p of platforms) {
+        if (!(p.name in next)) {
+          next[p.name] = DEFAULT_CHECKED_PLATFORMS.includes(p.name);
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, [platforms]);
 
   const openAddPlatform = () => {
     setPlatformForm(EMPTY_PLATFORM_FORM);
@@ -1714,8 +1762,39 @@ function Dashboard({ user, onLogout }) {
                 onChange={e => setResearchQuery(e.target.value)}
                 onKeyDown={e => { if (e.key === 'Enter') searchResearchProducts(); }}
               />
-              <div className="dsh-platform-checks">
-                {RESEARCH_PLATFORMS.map(p => (
+              <button
+                className="dsh-btn dsh-btn--primary"
+                onClick={searchResearchProducts}
+                disabled={researchLoading || !researchQuery.trim()}
+              >
+                {researchLoading ? (<><span className="dsh-spinner" /> Searching...</>) : `🔍 ${t.searchBtn}`}
+              </button>
+            </div>
+
+            <div className="dsh-research-scope">
+              <label className="dsh-platform-check">
+                <input
+                  type="radio"
+                  name="research-scope"
+                  checked={researchScope === 'all'}
+                  onChange={() => setResearchScope('all')}
+                />
+                🌐 Search Entire Web
+              </label>
+              <label className="dsh-platform-check">
+                <input
+                  type="radio"
+                  name="research-scope"
+                  checked={researchScope === 'custom'}
+                  onChange={() => setResearchScope('custom')}
+                />
+                🏪 Specific Stores
+              </label>
+            </div>
+
+            {researchScope === 'custom' && (
+              <div className="dsh-platform-checks dsh-platform-checks--research">
+                {researchStoreOptions.map(p => (
                   <label key={p.id} className="dsh-platform-check">
                     <input
                       type="checkbox"
@@ -1726,14 +1805,7 @@ function Dashboard({ user, onLogout }) {
                   </label>
                 ))}
               </div>
-              <button
-                className="dsh-btn dsh-btn--primary"
-                onClick={searchResearchProducts}
-                disabled={researchLoading || !researchQuery.trim()}
-              >
-                {researchLoading ? (<><span className="dsh-spinner" /> Searching...</>) : `🔍 ${t.searchBtn}`}
-              </button>
-            </div>
+            )}
 
             <div className="dsh-filters-toggle-row">
               <button

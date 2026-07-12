@@ -17,9 +17,16 @@ from pydantic import AnyHttpUrl, BaseModel, Field
 
 class SearchProductsRequest(BaseModel):
     query: str = Field(..., min_length=1, description="Search keywords, e.g. 'wireless earbuds'")
+    search_scope: str = Field(
+        default="custom",
+        description="'all' = every active registered platform (built-in + custom, regardless of "
+                     "`platforms`); 'custom' = only the platforms listed in `platforms`; or a single "
+                     "platform name (e.g. 'aliexpress') to search just that one.",
+    )
     platforms: list[str] = Field(
         default_factory=lambda: ["aliexpress", "amazon", "ebay"],
-        description="Which platform names to search (must be registered and active — see GET /api/platforms)",
+        description="Which platform names to search when search_scope='custom' "
+                     "(must be registered and active — see GET /api/platforms)",
     )
     max_results: int = Field(
         default=10, ge=1, le=1000,
@@ -40,6 +47,7 @@ class SearchProductsRequest(BaseModel):
         "json_schema_extra": {
             "example": {
                 "query": "wireless earbuds",
+                "search_scope": "custom",
                 "platforms": ["aliexpress", "amazon", "ebay"],
                 "max_results": 200,
                 "page": 1,
@@ -80,6 +88,11 @@ class SearchProductsResponse(BaseModel):
     has_next_page: bool
     results: list[ScrapedProduct]
     errors: dict[str, str] = Field(default_factory=dict, description="Per-platform errors, if any")
+    platforms_searched: list[str] = Field(
+        default_factory=list,
+        description="The concrete platform names actually searched, after resolving search_scope "
+                     "(e.g. every active platform, for scope='all')",
+    )
 
     model_config = {
         "json_schema_extra": {
@@ -89,6 +102,7 @@ class SearchProductsResponse(BaseModel):
                 "current_page": 1,
                 "total_pages": 1,
                 "has_next_page": False,
+                "platforms_searched": ["aliexpress", "amazon", "ebay"],
                 "results": [
                     {
                         "name": "Wireless Bluetooth Earbuds Pro",

@@ -253,3 +253,13 @@ def search(query: str, max_results: int = 10) -> list[dict]:
 
     logger.info("AliExpress search for %r returned %s results", query, len(results))
     return results
+
+
+if __name__ == "__main__":
+    results = search("iphone", max_results=100)
+    print(f"Results count: {len(results)}")
+    if results:
+        print("First result:")
+        print(results[0])
+    else:
+        print("No results found - Scraper is broken")

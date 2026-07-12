@@ -176,11 +176,26 @@ _search_cache: dict[tuple, tuple[float, list[ScrapedProduct], dict[str, str]]] =
 _search_cache_lock = threading.Lock()
 
 
-def _search_cache_key(payload: SearchProductsRequest) -> tuple:
-    return (payload.query.strip().lower(), tuple(sorted(payload.platforms)), payload.max_results)
+def _search_cache_key(payload: SearchProductsRequest, platform_names: list[str]) -> tuple:
+    return (payload.query.strip().lower(), tuple(sorted(platform_names)), payload.max_results)
 
 
-def _scrape_combined(payload: SearchProductsRequest, db: Session) -> tuple[list[ScrapedProduct], dict[str, str]]:
+def _resolve_scope_platforms(payload: SearchProductsRequest, db: Session) -> list[str]:
+    """Resolve `search_scope` (+ `platforms` for custom scope) into the concrete platform
+    names to scrape. 'all' means every active *registered* platform — built-in and custom —
+    not just `payload.platforms`, so a custom platform the user adds later is automatically
+    included in "search entire web" without the frontend needing to know its name."""
+    scope = (payload.search_scope or "custom").strip().lower()
+    if scope == "all":
+        return [p.name for p in db.query(PlatformDB).filter(PlatformDB.is_active.is_(True)).all()]
+    if scope == "custom":
+        return payload.platforms
+    return [scope]  # a single platform name used directly as the scope, e.g. "aliexpress"
+
+
+def _scrape_combined(
+    payload: SearchProductsRequest, platform_names: list[str], db: Session
+) -> tuple[list[ScrapedProduct], dict[str, str]]:
     """Run every requested platform's scraper and combine results. A failure scraping one
     platform never fails the whole request: it's reported per-platform in `errors`, and
     results from the other platforms are still returned. If `settings.scrape_mock_fallback`
@@ -191,12 +206,12 @@ def _scrape_combined(payload: SearchProductsRequest, db: Session) -> tuple[list[
     results: list[ScrapedProduct] = []
     errors: dict[str, str] = {}
 
-    requested_names = set(payload.platforms)
+    requested_names = set(platform_names)
     db_platforms = {
         p.name: p for p in db.query(PlatformDB).filter(PlatformDB.name.in_(requested_names)).all()
     }
 
-    for platform_name in payload.platforms:
+    for platform_name in platform_names:
         platform = db_platforms.get(platform_name)
         if not platform:
             errors[platform_name] = "Unknown platform — register it via POST /api/platforms first"
@@ -249,14 +264,28 @@ def search_products(payload: SearchProductsRequest, db: Session = Depends(get_db
     user picks one result to onboard, hand it to POST /api/manager/analyze-product for the
     full pipeline.
 
-    The underlying scrape (across all platforms, up to `max_results` each) is cached for
-    `_SEARCH_CACHE_TTL_SECONDS` per (query, platforms, max_results); `sort_by`/`min_price`/
-    `max_price`/`min_rating`/`in_stock_only`/`page`/`page_size` are re-applied on every
-    request against that cached pool, so paging through — or re-sorting/re-filtering — the
-    same search is fast and never re-scrapes.
+    `search_scope` controls which platforms are actually scraped: 'all' searches every
+    active registered platform (built-in + custom — "search the entire web"), 'custom'
+    searches only the names listed in `platforms` (checkbox-style store picking, including
+    a single store for faster, narrower results), and a bare platform name (e.g.
+    'aliexpress') searches just that one.
+
+    The underlying scrape (across the resolved platforms, up to `max_results` each) is
+    cached for `_SEARCH_CACHE_TTL_SECONDS` per (query, resolved platforms, max_results);
+    `sort_by`/`min_price`/`max_price`/`min_rating`/`in_stock_only`/`page`/`page_size` are
+    re-applied on every request against that cached pool, so paging through — or
+    re-sorting/re-filtering — the same search is fast and never re-scrapes.
     """
+    platform_names = _resolve_scope_platforms(payload, db)
+    if not platform_names:
+        raise HTTPException(
+            status_code=400,
+            detail="No platforms to search — for search_scope='all' register at least one active "
+                   "platform; for 'custom', include at least one name in `platforms`.",
+        )
+
     start_time = time.monotonic()
-    cache_key = _search_cache_key(payload)
+    cache_key = _search_cache_key(payload, platform_names)
     now = time.monotonic()
 
     with _search_cache_lock:
@@ -264,7 +293,7 @@ def search_products(payload: SearchProductsRequest, db: Session = Depends(get_db
     if cached and now - cached[0] < _SEARCH_CACHE_TTL_SECONDS:
         raw_results, errors = cached[1], cached[2]
     else:
-        raw_results, errors = _scrape_combined(payload, db)
+        raw_results, errors = _scrape_combined(payload, platform_names, db)
         with _search_cache_lock:
             _search_cache[cache_key] = (now, raw_results, errors)
 
@@ -276,8 +305,8 @@ def search_products(payload: SearchProductsRequest, db: Session = Depends(get_db
     page_results = filtered[page_start:page_start + payload.page_size]
 
     logger.info(
-        "Search for %r across %s platform(s) took %.1fs, %s total result(s), page %s/%s",
-        payload.query, len(payload.platforms), time.monotonic() - start_time,
+        "Search for %r [scope=%s] across %s platform(s) took %.1fs, %s total result(s), page %s/%s",
+        payload.query, payload.search_scope, len(platform_names), time.monotonic() - start_time,
         total_results, current_page, total_pages,
     )
 
@@ -289,6 +318,7 @@ def search_products(payload: SearchProductsRequest, db: Session = Depends(get_db
         has_next_page=current_page < total_pages,
         results=page_results,
         errors=errors,
+        platforms_searched=platform_names,
     )
 
 
