@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import './Dashboard.css';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, LineChart, Line, PieChart, Pie, Cell } from 'recharts';
+import { authFetch } from './api';
 
 const API_URL = 'http://localhost:5000/api';
 const RESEARCH_API_URL = 'http://127.0.0.1:8000/api';
@@ -323,6 +324,40 @@ const EmptyState = ({ icon, title, subtitle, action }) => (
   </div>
 );
 
+// Shared plan-comparison card grid — used by both the "limit reached" upgrade modal and the
+// standalone "Compare Plans" modal, so pricing/first-month-discount presentation only lives
+// in one place.
+const PlanCards = ({ plans, currentPlanKey, onSelect }) => (
+  <div className="dsh-plans-grid">
+    {plans.map(p => {
+      const isCurrent = p.key === currentPlanKey;
+      return (
+        <div key={p.key} className={`dsh-plan-card ${isCurrent ? 'dsh-plan-card--current' : ''}`}>
+          <div className="dsh-plan-card-name">{p.name}</div>
+          {p.monthly_price > 0 ? (
+            <div className="dsh-plan-card-price">${p.monthly_price.toFixed(2)}<small>/mo</small></div>
+          ) : (
+            <div className="dsh-plan-card-price">Free</div>
+          )}
+          {p.first_month_price > 0 && p.first_month_price < p.monthly_price && (
+            <div className="dsh-plan-card-first-month">${p.first_month_price.toFixed(2)} first month!</div>
+          )}
+          <div className="dsh-plan-card-desc">{p.description}</div>
+          <div className="dsh-plan-card-limit">
+            {p.max_products_per_month === null ? 'Unlimited' : p.max_products_per_month} products/month
+          </div>
+          {!isCurrent && (
+            <button className="dsh-btn dsh-btn--primary" onClick={() => onSelect(p.key)}>
+              {p.monthly_price > 0 ? `Upgrade to ${p.name}` : `Switch to ${p.name}`}
+            </button>
+          )}
+          {isCurrent && <span className="dsh-badge">Current plan</span>}
+        </div>
+      );
+    })}
+  </div>
+);
+
 const StarRating = ({ rating, size }) => {
   const rounded = Math.round(rating || 0);
   return (
@@ -418,6 +453,17 @@ function Dashboard({ user, onLogout }) {
   const [loading, setLoading] = useState(true);
   const [refreshingAll, setRefreshingAll] = useState(false);
   const [logoutConfirmOpen, setLogoutConfirmOpen] = useState(false);
+  const [upgradeModalOpen, setUpgradeModalOpen] = useState(false);
+  const [plansModalOpen, setPlansModalOpen] = useState(false);
+  const [usageInfo, setUsageInfo] = useState(null);
+  const [billingPlans, setBillingPlans] = useState([]);
+  const [adminUsers, setAdminUsers] = useState([]);
+  const [adminStats, setAdminStats] = useState(null);
+  const [adminHealth, setAdminHealth] = useState(null);
+  const [adminLogs, setAdminLogs] = useState([]);
+  const [notifBellOpen, setNotifBellOpen] = useState(false);
+  const [webhooks, setWebhooks] = useState([]);
+  const [newWebhookUrl, setNewWebhookUrl] = useState('');
   const [autoRefresh, setAutoRefresh] = useState(true);
   const [toasts, setToasts] = useState([]);
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -572,7 +618,115 @@ function Dashboard({ user, onLogout }) {
     });
   }, []);
 
+  // Gates a search/analyze action behind the user's monthly plan limit. Returns true if the
+  // action may proceed (and has already been counted); on a 403 LIMIT_REACHED, re-fetches
+  // /user/usage for display data and opens the upgrade modal instead.
+  const checkAndIncrementUsage = useCallback(async (actionType) => {
+    try {
+      await authFetch(API_URL, '/user/usage/increment', { method: 'POST', body: JSON.stringify({ actionType }) });
+      return true;
+    } catch {
+      const status = await authFetch(API_URL, '/user/usage').catch(() => null);
+      setUsageInfo(status);
+      authFetch(API_URL, '/plans').then(d => setBillingPlans(d.plans || [])).catch(() => {});
+      setUpgradeModalOpen(true);
+      return false;
+    }
+  }, []);
+
+  // Self-service plan switch — determines and records the correct charge ($5 first month,
+  // full price after) server-side; no real payment is processed until Stripe has real keys
+  // (matches the rest of this app's payment scaffold), so this always resolves immediately
+  // rather than redirecting anywhere.
+  const changePlan = useCallback(async (planKey) => {
+    try {
+      const data = await authFetch(API_URL, '/user/change-plan', {
+        method: 'POST',
+        body: JSON.stringify({ planKey }),
+      });
+      showToast(data.message, data.chargeAmount > 0 ? 'info' : 'success');
+      const status = await authFetch(API_URL, '/user/usage').catch(() => null);
+      setUsageInfo(status);
+      setUpgradeModalOpen(false);
+      setPlansModalOpen(false);
+    } catch (err) {
+      showToast(err.message || 'Could not change plan', 'error');
+    }
+  }, [showToast]);
+
   useEffect(() => { if (page === 'usersettings') setSettingsDraft(appSettings); }, [page, appSettings]);
+
+  useEffect(() => {
+    if (page !== 'usersettings') return;
+    authFetch(API_URL, '/user/usage').then(setUsageInfo).catch(() => {});
+    authFetch(API_URL, '/plans').then(d => setBillingPlans(d.plans || [])).catch(() => {});
+    authFetch(API_URL, '/webhooks').then(d => setWebhooks(d.webhooks || [])).catch(() => {});
+  }, [page]);
+
+  const loadAdminData = useCallback(() => {
+    authFetch(API_URL, '/admin/users').then(d => setAdminUsers(d.users || [])).catch(() => {});
+    authFetch(API_URL, '/admin/stats').then(setAdminStats).catch(() => {});
+    authFetch(API_URL, '/admin/health').then(setAdminHealth).catch(() => {});
+    authFetch(API_URL, '/admin/logs').then(d => setAdminLogs(d.logs || [])).catch(() => {});
+    authFetch(API_URL, '/plans').then(d => setBillingPlans(d.plans || [])).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    if (page !== 'admin') return;
+    loadAdminData();
+  }, [page, loadAdminData]);
+
+  const addWebhook = useCallback(async () => {
+    if (!newWebhookUrl.trim()) return;
+    try {
+      await authFetch(API_URL, '/webhooks', { method: 'POST', body: JSON.stringify({ url: newWebhookUrl.trim() }) });
+      const d = await authFetch(API_URL, '/webhooks');
+      setWebhooks(d.webhooks || []);
+      setNewWebhookUrl('');
+      showToast('Webhook registered', 'success');
+    } catch (err) {
+      showToast(err.message || 'Could not register webhook', 'error');
+    }
+  }, [newWebhookUrl, showToast]);
+
+  const deleteWebhook = useCallback(async (id) => {
+    try {
+      await authFetch(API_URL, `/webhooks/${id}`, { method: 'DELETE' });
+      setWebhooks(prev => prev.filter(w => w.id !== id));
+    } catch (err) {
+      showToast(err.message || 'Could not delete webhook', 'error');
+    }
+  }, [showToast]);
+
+  const adminSetUserPlan = useCallback(async (userId, planKey) => {
+    try {
+      await authFetch(API_URL, `/admin/users/${userId}/plan`, { method: 'PUT', body: JSON.stringify({ planKey }) });
+      showToast('Plan updated', 'success');
+      loadAdminData();
+    } catch (err) {
+      showToast(err.message || 'Could not update plan', 'error');
+    }
+  }, [showToast, loadAdminData]);
+
+  const adminDeleteUser = useCallback(async (userId) => {
+    try {
+      await authFetch(API_URL, `/admin/users/${userId}`, { method: 'DELETE' });
+      showToast('User deleted', 'success');
+      loadAdminData();
+    } catch (err) {
+      showToast(err.message || 'Could not delete user', 'error');
+    }
+  }, [showToast, loadAdminData]);
+
+  const markAllNotificationsRead = useCallback(() => {
+    setNotifications(prev => {
+      const next = prev.map(n => ({ ...n, read: true }));
+      localStorage.setItem('dsh-notifications', JSON.stringify(next));
+      return next;
+    });
+  }, []);
+
+  const unreadNotifCount = notifications.filter(n => !n.read).length;
 
   const saveSettings = () => {
     setAppSettings(settingsDraft);
@@ -595,9 +749,9 @@ function Dashboard({ user, onLogout }) {
     if (!silent) setRefreshingAll(true);
     try {
       const [aRes, tRes, lRes] = await Promise.allSettled([
-        fetch(`${API_URL}/agents`).then(r => r.json()),
-        fetch(`${API_URL}/tasks`).then(r => r.json()),
-        fetch(`${API_URL}/logs`).then(r => r.json()),
+        authFetch(API_URL, '/agents'),
+        authFetch(API_URL, '/tasks'),
+        authFetch(API_URL, '/logs'),
       ]);
 
       if (aRes.status === 'fulfilled') setAgents(normalizeList(aRes.value, 'agents'));
@@ -623,6 +777,37 @@ function Dashboard({ user, onLogout }) {
   }, [autoRefresh, appSettings.autoRefreshInterval, fetchAll]);
 
   useEffect(() => { localStorage.setItem('dsh-theme', dark ? 'dark' : 'light'); }, [dark]);
+
+  // Cross-service bridge: the FastAPI competitor tracker can't push into React state
+  // directly, so this polls its alerts endpoint the same way fetchAll polls the Express
+  // mock endpoints, surfaces each new alert into the existing notification bell, then
+  // immediately acks it so it doesn't reappear on the next cycle.
+  //
+  // seenAlertIds guards against double-notifying the same alert: the ack round-trip isn't
+  // instantaneous, so a fast poll (or React StrictMode's dev-only double-effect-invoke) can
+  // fetch the same still-unacknowledged alert twice before the first ack lands.
+  const seenAlertIds = useRef(new Set());
+  useEffect(() => {
+    const pollCompetitorAlerts = async () => {
+      try {
+        const alerts = await fetch(`${RESEARCH_API_URL}/competitor/alerts`).then(r => r.json());
+        const freshAlerts = alerts.filter(a => !seenAlertIds.current.has(a.id));
+        freshAlerts.forEach(a => {
+          seenAlertIds.current.add(a.id);
+          addNotification(
+            'warning',
+            `Competitor price ${a.change_percent > 0 ? 'increased' : 'dropped'} ${Math.abs(a.change_percent)}% (product #${a.product_id})`
+          );
+        });
+        await Promise.all(freshAlerts.map(a => fetch(`${RESEARCH_API_URL}/competitor/alerts/${a.id}/ack`, { method: 'POST' })));
+      } catch {
+        // FastAPI unreachable — silently skip this cycle, same tolerance as fetchAll.
+      }
+    };
+    pollCompetitorAlerts();
+    const iv = setInterval(pollCompetitorAlerts, 5 * 60 * 1000);
+    return () => clearInterval(iv);
+  }, [addNotification]);
 
   const agentStatus = (a) => (a.status || 'offline').toLowerCase();
   const activeCount = agents.filter(a => ['online', 'active', 'running', 'busy'].includes(agentStatus(a))).length;
@@ -701,6 +886,7 @@ function Dashboard({ user, onLogout }) {
       showToast(t.selectPlatform, 'warning');
       return;
     }
+    if (!(await checkAndIncrementUsage('search'))) return;
 
     setResearchLoading(true);
     setResearchError(null);
@@ -993,6 +1179,7 @@ function Dashboard({ user, onLogout }) {
       showToast('This product has no price — cannot analyze it', 'warning');
       return;
     }
+    if (!(await checkAndIncrementUsage('analyze'))) return;
     setAnalyzingProduct(true);
     try {
       const res = await fetch(`${RESEARCH_API_URL}/manager/analyze-product`, {
@@ -1386,14 +1573,19 @@ function Dashboard({ user, onLogout }) {
         `${data.synced_count} synced${data.failed_count ? `, ${data.failed_count} failed` : ''}`,
         data.failed_count ? 'warning' : 'success'
       );
+      addNotification(
+        data.failed_count ? 'warning' : 'success',
+        `Shopify sync: ${data.synced_count} synced${data.failed_count ? `, ${data.failed_count} failed` : ''}`
+      );
     } catch {
       showToast('Bulk sync failed', 'error');
+      addNotification('error', 'Shopify bulk sync failed');
     } finally {
       setShopifySyncing(false);
       fetchShopifyStats();
       fetchShopifySyncLog();
     }
-  }, [selectedProductIds, showToast, fetchShopifyStats, fetchShopifySyncLog]);
+  }, [selectedProductIds, showToast, addNotification, fetchShopifyStats, fetchShopifySyncLog]);
 
   const buildSchedulerPayload = () => ({
     interval_hours: Number(schedulerForm.interval_hours),
@@ -1441,6 +1633,7 @@ function Dashboard({ user, onLogout }) {
           throw new Error(body.detail || `HTTP ${res.status}`);
         }
         showToast('Auto-sync started', 'success');
+        addNotification('success', 'Shopify auto-sync started');
       } else {
         await fetch(`${RESEARCH_API_URL}/scheduler/stop-auto-sync`, { method: 'POST' });
         showToast('Auto-sync stopped', 'info');
@@ -1574,6 +1767,7 @@ function Dashboard({ user, onLogout }) {
     { id: 'analytics', icon: '📊', label: 'Analytics' },
     { id: 'platforms', icon: '⚙️', label: t.platformSettings },
     { id: 'usersettings', icon: '⚙️', label: 'Settings' },
+    ...(user.role === 'admin' ? [{ id: 'admin', icon: '🛡️', label: 'Admin' }] : []),
   ];
 
   const closeAnyModal = useCallback(() => {
@@ -1687,6 +1881,40 @@ function Dashboard({ user, onLogout }) {
               {greeting.text}, <span className="dsh-title-name">{displayName}</span> {greeting.emoji}
             </h1>
             <p className="dsh-sub dsh-sub--animated" key={headerDescription}>{headerDescription}</p>
+          </div>
+          <div className="dsh-header-actions" style={{ position: 'relative' }}>
+            <button
+              className="dsh-icon-btn"
+              onClick={() => setNotifBellOpen(o => !o)}
+              title="Notifications"
+              style={{ position: 'relative' }}
+            >
+              🔔
+              {unreadNotifCount > 0 && (
+                <span className="dsh-notif-badge">{unreadNotifCount > 9 ? '9+' : unreadNotifCount}</span>
+              )}
+            </button>
+            {notifBellOpen && (
+              <div className="dsh-notif-dropdown">
+                <div className="dsh-notif-dropdown-head">
+                  <strong>Notifications</strong>
+                  <button className="dsh-btn dsh-btn--ghost" onClick={markAllNotificationsRead}>Mark all read</button>
+                </div>
+                {notifications.length === 0 ? (
+                  <div className="dsh-notif-empty">No notifications yet</div>
+                ) : (
+                  notifications.slice(0, 20).map(n => (
+                    <div key={n.id} className={`dsh-notif-row ${n.read ? '' : 'dsh-notif-row--unread'}`}>
+                      <span>{NOTIF_ICONS[n.type] || 'ℹ'}</span>
+                      <div>
+                        <div className="dsh-notif-msg">{n.message}</div>
+                        <div className="dsh-notif-time">{new Date(n.time).toLocaleString()}</div>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            )}
           </div>
         </header>
 
@@ -2999,11 +3227,169 @@ function Dashboard({ user, onLogout }) {
                   />
                 </div>
               </div>
+
+              <div className="dsh-settings-panel">
+                <h3 className="dsh-settings-panel-title">💳 Plan &amp; Billing</h3>
+                {usageInfo && (
+                  <div className="dsh-settings-section">
+                    <div className="dsh-settings-label">Current Plan: {usageInfo.planName || usageInfo.plan || 'Free'}</div>
+                    <div className="dsh-settings-item-desc">
+                      {usageInfo.limit === null
+                        ? `${usageInfo.used} products used this month — unlimited plan`
+                        : `${usageInfo.used} of ${usageInfo.limit} products used this month`}
+                    </div>
+                    {usageInfo.limit !== null && (
+                      <div className="dsh-usage-bar">
+                        <div
+                          className={`dsh-usage-bar-fill ${usageInfo.percentUsed >= 80 ? 'dsh-usage-bar-fill--warn' : ''}`}
+                          style={{ width: `${Math.min(100, usageInfo.percentUsed)}%` }}
+                        />
+                      </div>
+                    )}
+                    {usageInfo.normalPrice > 0 && (
+                      <div className="dsh-settings-item-desc" style={{ marginTop: 8 }}>
+                        {usageInfo.isFirstMonth ? (
+                          <>💰 Paying <strong>${usageInfo.currentPrice.toFixed(2)}</strong> this first month (normally ${usageInfo.normalPrice.toFixed(2)}/mo)</>
+                        ) : (
+                          <>Paying <strong>${usageInfo.normalPrice.toFixed(2)}/mo</strong></>
+                        )}
+                      </div>
+                    )}
+                    {usageInfo.nextBillingDate && (
+                      <div className="dsh-settings-item-desc">
+                        Next billing date: {new Date(usageInfo.nextBillingDate).toLocaleDateString()}
+                      </div>
+                    )}
+                    {usageInfo.limit !== null && usageInfo.percentUsed >= 80 && (
+                      <button className="dsh-btn dsh-btn--primary" style={{ marginTop: 10 }} onClick={() => setPlansModalOpen(true)}>
+                        📈 Upgrade Plan
+                      </button>
+                    )}
+                  </div>
+                )}
+                <div className="dsh-settings-section">
+                  <button className="dsh-btn dsh-btn--ghost" onClick={() => setPlansModalOpen(true)}>
+                    View All Plans
+                  </button>
+                </div>
+              </div>
+
+              <div className="dsh-settings-panel">
+                <h3 className="dsh-settings-panel-title">🔗 Webhooks</h3>
+                <div className="dsh-settings-section">
+                  <div className="dsh-settings-label">Register a webhook URL</div>
+                  <div className="dsh-settings-item-desc">Receives a POST for every notification event (product added, sync complete, error alerts).</div>
+                  <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                    <input
+                      type="url"
+                      className="dsh-input"
+                      placeholder="https://example.com/webhook"
+                      value={newWebhookUrl}
+                      onChange={e => setNewWebhookUrl(e.target.value)}
+                    />
+                    <button className="dsh-btn dsh-btn--primary" onClick={addWebhook}>+ Add</button>
+                  </div>
+                </div>
+                <div className="dsh-settings-section">
+                  <div className="dsh-settings-label">Registered Webhooks</div>
+                  {webhooks.length === 0 ? (
+                    <div className="dsh-settings-item-desc">No webhooks registered yet.</div>
+                  ) : (
+                    <div className="dsh-platform-checks" style={{ flexDirection: 'column', alignItems: 'stretch', gap: 8 }}>
+                      {webhooks.map(w => (
+                        <div key={w.id} className="dsh-platform-check" style={{ justifyContent: 'space-between' }}>
+                          <span>{w.url}</span>
+                          <button className="dsh-btn dsh-btn--ghost" onClick={() => deleteWebhook(w.id)}>✕ Remove</button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
             </div>
 
             <div className="dsh-settings-actions dsh-user-settings-actions">
               <button className="dsh-btn dsh-btn--primary" onClick={saveSettings}>✓ Save Settings</button>
               <button className="dsh-btn dsh-btn--ghost" onClick={resetSettingsDraft}>↺ Reset to Defaults</button>
+            </div>
+          </section>
+        )}
+
+        {page === 'admin' && user.role === 'admin' && (
+          <section className="dsh-section">
+            <div className="dsh-section-head">
+              <h2>🛡️ Admin</h2>
+              <button className="dsh-btn dsh-btn--ghost" onClick={loadAdminData}>⟳ Refresh</button>
+            </div>
+
+            {adminStats && (
+              <section className="dsh-stats">
+                <div className="dsh-stat dsh-stat--purple">
+                  <span className="dsh-stat-icon">👥</span>
+                  <div>
+                    <div className="dsh-stat-num">{adminStats.total_users}</div>
+                    <div className="dsh-stat-label">Total Users</div>
+                  </div>
+                </div>
+                <div className="dsh-stat dsh-stat--gold">
+                  <span className="dsh-stat-icon">💰</span>
+                  <div>
+                    <div className="dsh-stat-num">${(adminStats.revenue_proxy_cents / 100).toFixed(2)}</div>
+                    <div className="dsh-stat-label">Revenue (proxy)</div>
+                  </div>
+                </div>
+                <div className="dsh-stat dsh-stat--blue">
+                  <span className="dsh-stat-icon">🔍</span>
+                  <div>
+                    <div className="dsh-stat-num">{adminStats.active_searches_24h}</div>
+                    <div className="dsh-stat-label">Actions (24h)</div>
+                  </div>
+                </div>
+              </section>
+            )}
+
+            {adminHealth && (
+              <div className="dsh-settings-panel">
+                <h3 className="dsh-settings-panel-title">System Health</h3>
+                <div style={{ display: 'flex', gap: 24 }}>
+                  <span>{adminHealth.express?.ok ? '🟢' : '🔴'} Express Backend</span>
+                  <span>{adminHealth.fastapi?.ok ? '🟢' : '🔴'} FastAPI Research Service</span>
+                </div>
+              </div>
+            )}
+
+            <div className="dsh-settings-panel">
+              <h3 className="dsh-settings-panel-title">Users</h3>
+              <div className="dsh-platform-checks" style={{ flexDirection: 'column', alignItems: 'stretch', gap: 8 }}>
+                {adminUsers.map(u => (
+                  <div key={u.id} className="dsh-platform-check" style={{ justifyContent: 'space-between' }}>
+                    <span>{u.name} ({u.email}) — {u.role} — {u.plan_key || 'free'}</span>
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      <select
+                        className="dsh-input"
+                        defaultValue={u.plan_key || 'free'}
+                        onChange={e => adminSetUserPlan(u.id, e.target.value)}
+                      >
+                        {billingPlans.map(p => <option key={p.key} value={p.key}>{p.name}</option>)}
+                      </select>
+                      <button
+                        className="dsh-btn dsh-btn--danger"
+                        onClick={() => adminDeleteUser(u.id)}
+                        disabled={u.id === user.id}
+                      >
+                        ✕ Delete
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="dsh-settings-panel">
+              <h3 className="dsh-settings-panel-title">Logs</h3>
+              <pre className="dsh-admin-logs">
+                {adminLogs.length === 0 ? 'No log entries yet.' : adminLogs.map(l => JSON.stringify(l)).join('\n')}
+              </pre>
             </div>
           </section>
         )}
@@ -3428,6 +3814,37 @@ function Dashboard({ user, onLogout }) {
             <div className="dsh-settings-actions">
               <button className="dsh-btn dsh-btn--ghost" onClick={() => setLogoutConfirmOpen(false)}>Cancel</button>
               <button className="dsh-btn dsh-btn--danger" onClick={onLogout}>⏻ Log Out</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {upgradeModalOpen && (
+        <div className="dsh-modal-back" onClick={() => setUpgradeModalOpen(false)}>
+          <div className="dsh-modal" onClick={e => e.stopPropagation()}>
+            <h3>📈 Monthly Limit Reached</h3>
+            <p className="dsh-logout-text">
+              {usageInfo
+                ? `You've used ${usageInfo.used}${usageInfo.limit !== null ? ` of ${usageInfo.limit}` : ''} products on the ${usageInfo.planName || usageInfo.plan || 'Free'} plan this month.`
+                : "You've reached your monthly plan limit."}
+              {' '}Upgrade to continue researching products.
+            </p>
+            <PlanCards plans={billingPlans} currentPlanKey={usageInfo?.plan} onSelect={changePlan} />
+            <div className="dsh-settings-actions">
+              <button className="dsh-btn dsh-btn--ghost" onClick={() => setUpgradeModalOpen(false)}>Close</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {plansModalOpen && (
+        <div className="dsh-modal-back" onClick={() => setPlansModalOpen(false)}>
+          <div className="dsh-modal dsh-modal--wide" onClick={e => e.stopPropagation()}>
+            <h3>💳 Compare Plans</h3>
+            <p className="dsh-logout-text">Every paid plan starts at just <strong>$5 for your first month</strong>.</p>
+            <PlanCards plans={billingPlans} currentPlanKey={usageInfo?.plan} onSelect={changePlan} />
+            <div className="dsh-settings-actions">
+              <button className="dsh-btn dsh-btn--ghost" onClick={() => setPlansModalOpen(false)}>Close</button>
             </div>
           </div>
         </div>

@@ -22,8 +22,10 @@ from fastapi.responses import JSONResponse
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
+import competitor_tracker
 import dynamic_scraper
 import manager_agent
+import marketing_agent
 import mock_data
 import ollama_integration
 import scraper_aliexpress
@@ -65,9 +67,11 @@ async def lifespan(app: FastAPI):
     init_db()
     seed_builtin_platforms()
     shopify_scheduler.start_scheduler()
+    competitor_tracker.start_scheduler()
     logger.info("Product Research Agent ready on port %s", settings.port)
     yield
     shopify_scheduler.stop_scheduler()
+    competitor_tracker.stop_scheduler()
 
 
 TAGS_METADATA = [
@@ -78,6 +82,8 @@ TAGS_METADATA = [
     {"name": "manager", "description": "The unified Manager Agent: product search analysis, pricing, inventory, and marketing — all in one place."},
     {"name": "shopify", "description": "Sync analyzed products to a Shopify store and keep price/inventory in sync."},
     {"name": "scheduler", "description": "Automated discovery — scans seed keywords on a schedule and auto-syncs profitable finds to Shopify as drafts."},
+    {"name": "marketing", "description": "AI-generated SEO descriptions, keywords, and marketing copy for a product."},
+    {"name": "competitor", "description": "Periodic competitor price tracking and change alerts."},
 ]
 
 app = FastAPI(
@@ -116,6 +122,8 @@ app.add_middleware(
 app.include_router(manager_agent.router)
 app.include_router(shopify_integration.router)
 app.include_router(shopify_scheduler.router)
+app.include_router(marketing_agent.router)
+app.include_router(competitor_tracker.router)
 
 
 @app.exception_handler(Exception)

@@ -33,7 +33,6 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 import dynamic_scraper
-import ollama_integration
 import scraper_aliexpress
 import scraper_amazon
 import scraper_ebay
@@ -936,14 +935,11 @@ def _run_analyze_pipeline(payload: AnalyzeProductRequest, db: Session) -> Produc
         "description": payload.description, "rating": payload.rating,
         "reviews_count": payload.reviews_count, "platform": payload.platform,
     }
-    ai_marketing = ollama_integration.analyze_product(marketing_input)
+    import marketing_agent  # local import — avoids circular import (marketing_agent imports us too)
+
+    ai_marketing = marketing_agent.generate_marketing_copy(marketing_input)
     if ai_marketing:
-        product.marketing_json = json.dumps({
-            "description": ai_marketing.get("description"),
-            "target_audience": ai_marketing.get("target_audience"),
-            "keywords": ai_marketing.get("keywords") or [],
-            "generated_at": utcnow().isoformat(),
-        })
+        product.marketing_json = json.dumps(ai_marketing)
         _log_history(db, product.id, "marketed", {
             "target_audience": ai_marketing.get("target_audience"),
             "description_excerpt": (ai_marketing.get("description") or "")[:200],

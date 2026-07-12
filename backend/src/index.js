@@ -1,22 +1,66 @@
 const express = require('express');
 const cors = require('cors');
+const helmet = require('helmet');
+const rateLimit = require('express-rate-limit');
 require('dotenv').config();
 const db = require('./database.js');
 const { initDatabase } = db;
+const { requireAuth } = require('./middleware/auth.js');
+const logger = require('./utils/logger.js');
 
 const app = express();
 
+app.use(helmet());
+
+// Comma-separated allowlist (mirrors the FastAPI side's cors_origins_list pattern) —
+// supports multiple origins in production while defaulting to the local dev frontend.
+const allowedOrigins = (process.env.CORS_ORIGIN || 'http://localhost:3000').split(',').map((s) => s.trim());
 app.use(cors({
-  origin: '*',
+  origin: (origin, cb) => (!origin || allowedOrigins.includes(origin)) ? cb(null, true) : cb(new Error('Not allowed by CORS')),
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization']
 }));
 
+// Stripe requires the raw (unparsed) request body to verify webhook signatures, so this
+// route is mounted with express.raw() ahead of the app-wide express.json() below.
+app.post(
+  '/api/billing/webhook',
+  express.raw({ type: 'application/json' }),
+  require('./routes/billing.js').webhookHandler
+);
+
 app.use(express.json());
 
 // Initialize Database
 initDatabase();
+
+// Brute-force protection on auth endpoints.
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { success: false, message: 'Too many attempts, try again later' },
+});
+app.use('/api/users/login', authLimiter);
+app.use('/api/users/register', authLimiter);
+
+// Auth routes (register/login) must be mounted before the global auth gate below,
+// since they're how a user gets a token in the first place.
+app.use('/api/users', require('./routes/users.js'));
+
+// Everything else requires a valid JWT — Stripe's webhook has no user JWT, so it's whitelisted too.
+const PUBLIC_PATHS = ['/api/health', '/api/users/register', '/api/users/login', '/api/billing/webhook'];
+app.use((req, res, next) => {
+  if (PUBLIC_PATHS.includes(req.path)) return next();
+  return requireAuth(req, res, next);
+});
+
+app.use('/api/plans', require('./routes/plans.js'));
+app.use('/api/user', require('./routes/user.js'));
+app.use('/api/admin', require('./routes/admin.js'));
+app.use('/api/webhooks', require('./routes/webhooks.js'));
 
 // Health check
 app.get('/api/health', (req, res) => {
@@ -86,9 +130,19 @@ app.delete('/api/agents/:id', (req, res) => {
   res.json({ success: true, message: 'Agent deleted', id });
 });
 
+// Centralized error handler — must be the last app.use(). Logs full details always, but
+// only returns the stack trace to the client outside production.
+app.use((err, req, res, next) => {
+  logger.error('Unhandled error', { path: req.path, error: err.message, stack: err.stack });
+  res.status(500).json({
+    success: false,
+    message: process.env.NODE_ENV === 'production' ? 'Internal server error' : err.message,
+  });
+});
+
 // Start Server
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
-  console.log(`🚀 Server running on http://localhost:${PORT}`);
-  console.log(`📊 12 AI Agents ready (1 Manager + 11 Workers)`);
+  logger.info(`Server running on http://localhost:${PORT}`);
+  logger.info('12 AI Agents ready (1 Manager + 11 Workers)');
 });

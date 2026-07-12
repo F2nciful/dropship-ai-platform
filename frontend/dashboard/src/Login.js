@@ -1,8 +1,11 @@
 import React, { useState } from 'react';
 import './Login.css';
+import { API_URL } from './api';
 
 function Login({ onLogin }) {
   const [dark, setDark] = useState(() => localStorage.getItem('dsh-theme') !== 'light');
+  const [mode, setMode] = useState('login'); // 'login' | 'register'
+  const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -15,10 +18,10 @@ function Login({ onLogin }) {
     localStorage.setItem('dsh-theme', next ? 'dark' : 'light');
   };
 
-  const handleLogin = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
 
-    if (!email || !password) {
+    if (!email || !password || (mode === 'register' && !name)) {
       setError('Please fill in all fields');
       return;
     }
@@ -26,19 +29,30 @@ function Login({ onLogin }) {
     setLoading(true);
     setError('');
 
-    setTimeout(() => {
-      const user = {
-        id: 1,
-        email: email,
-        name: email.split('@')[0]
-      };
+    try {
+      const path = mode === 'register' ? '/users/register' : '/users/login';
+      const body = mode === 'register' ? { name, email, password } : { email, password };
+      const res = await fetch(`${API_URL}${path}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json().catch(() => ({}));
 
-      localStorage.setItem('user', JSON.stringify(user));
-      localStorage.setItem('token', 'fake-jwt-token-' + Date.now());
+      if (!res.ok || !data.success) {
+        setError(data.message || 'Something went wrong');
+        setLoading(false);
+        return;
+      }
 
-      onLogin(user);
+      localStorage.setItem('user', JSON.stringify(data.user));
+      localStorage.setItem('token', data.token);
+      onLogin(data.user);
+    } catch (err) {
+      setError('Could not reach the server — please try again');
+    } finally {
       setLoading(false);
-    }, 1000);
+    }
   };
 
   return (
@@ -54,11 +68,26 @@ function Login({ onLogin }) {
           <p className="login-tagline">Intelligent Commerce Platform</p>
         </div>
 
-        <form onSubmit={handleLogin} className="login-form">
+        <form onSubmit={handleSubmit} className="login-form">
           {error && (
             <div className="login-error">
               <span>⚠️</span>
               {error}
+            </div>
+          )}
+
+          {mode === 'register' && (
+            <div className="login-field">
+              <label>Name</label>
+              <div className="login-input-wrap">
+                <span className="login-input-icon">👤</span>
+                <input
+                  type="text"
+                  placeholder="Your name"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                />
+              </div>
             </div>
           )}
 
@@ -103,14 +132,18 @@ function Login({ onLogin }) {
             {loading ? (
               <>
                 <span className="login-spinner" />
-                Logging in...
+                {mode === 'register' ? 'Creating account...' : 'Logging in...'}
               </>
-            ) : 'Login'}
+            ) : (mode === 'register' ? 'Create Account' : 'Login')}
           </button>
         </form>
 
         <p className="login-footer">
-          Demo: Use any email/password to login
+          {mode === 'login' ? (
+            <>New here? <button type="button" className="login-mode-toggle" onClick={() => { setMode('register'); setError(''); }}>Create an account</button></>
+          ) : (
+            <>Already have an account? <button type="button" className="login-mode-toggle" onClick={() => { setMode('login'); setError(''); }}>Log in</button></>
+          )}
         </p>
       </div>
     </div>

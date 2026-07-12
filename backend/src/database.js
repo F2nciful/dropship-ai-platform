@@ -8,6 +8,29 @@ const db = new Database(dbPath);
 // Enable foreign keys
 db.pragma('foreign_keys = ON');
 
+// Adds a column to an existing table if it isn't already there — better-sqlite3 has no
+// migration framework, so this keeps initDatabase() safe to rerun across app versions
+// without ever needing to drop/recreate the database file.
+function addColumnIfMissing(table, columnDefSql, columnName) {
+  const cols = db.prepare(`PRAGMA table_info(${table})`).all();
+  if (!cols.some((c) => c.name === columnName)) {
+    db.exec(`ALTER TABLE ${table} ADD COLUMN ${columnDefSql}`);
+  }
+}
+
+// Renames a column in place (SQLite 3.25+, bundled by better-sqlite3) when the old name is
+// still present — idempotent, since the second run finds the new name already there and
+// no-ops. Used instead of addColumnIfMissing when a column is being redefined rather than
+// newly introduced, so existing data isn't left behind under a stale, unused name.
+function renameColumnIfNeeded(table, oldName, newName) {
+  const cols = db.prepare(`PRAGMA table_info(${table})`).all();
+  const hasOld = cols.some((c) => c.name === oldName);
+  const hasNew = cols.some((c) => c.name === newName);
+  if (hasOld && !hasNew) {
+    db.exec(`ALTER TABLE ${table} RENAME COLUMN ${oldName} TO ${newName}`);
+  }
+}
+
 // Initialize database tables
 function initDatabase() {
   try {
@@ -24,6 +47,17 @@ function initDatabase() {
         updated_at TEXT DEFAULT CURRENT_TIMESTAMP
       )
     `);
+    addColumnIfMissing('users', "role TEXT NOT NULL DEFAULT 'user'", 'role');
+    addColumnIfMissing('users', 'plan_id INTEGER DEFAULT 1', 'plan_id');
+    addColumnIfMissing('users', 'monthly_usage_count INTEGER NOT NULL DEFAULT 0', 'monthly_usage_count');
+    renameColumnIfNeeded('users', 'monthly_usage_count', 'products_used_this_month');
+    addColumnIfMissing('users', 'usage_period_start TEXT', 'usage_period_start');
+    addColumnIfMissing('users', 'stripe_customer_id TEXT', 'stripe_customer_id');
+    addColumnIfMissing('users', 'stripe_subscription_id TEXT', 'stripe_subscription_id');
+    addColumnIfMissing('users', 'subscription_start_date TEXT', 'subscription_start_date');
+    // Backfill only — every user should have a start date for "first month" pricing to be
+    // computable; new rows get this set explicitly at registration/plan-change time instead.
+    db.prepare("UPDATE users SET subscription_start_date = COALESCE(subscription_start_date, created_at, CURRENT_TIMESTAMP) WHERE subscription_start_date IS NULL").run();
     console.log('✅ Users table ready');
 
     // Agents table
@@ -104,6 +138,85 @@ function initDatabase() {
       )
     `);
     console.log('✅ Products table ready');
+
+    // Plans table — users.plan_id references it via the auth middleware's LEFT JOIN, and
+    // SQLite requires the table to exist for that query to parse even though the join
+    // tolerates missing rows.
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS plans (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        key TEXT UNIQUE NOT NULL,
+        name TEXT NOT NULL,
+        monthly_action_limit INTEGER,
+        price_usd_cents INTEGER NOT NULL DEFAULT 0,
+        stripe_price_id TEXT,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    renameColumnIfNeeded('plans', 'monthly_action_limit', 'max_products_per_month');
+    renameColumnIfNeeded('plans', 'price_usd_cents', 'monthly_price');
+    addColumnIfMissing('plans', 'first_month_price REAL', 'first_month_price');
+    addColumnIfMissing('plans', 'description TEXT', 'description');
+
+    // Final pricing — fixed ids so users.plan_id DEFAULT 1 always means 'free'. Uses an
+    // upsert (not INSERT OR IGNORE) since this is the definitive tier/pricing structure:
+    // any dev database seeded under the earlier placeholder tiers gets updated in place
+    // rather than left stale.
+    const upsertPlan = db.prepare(`
+      INSERT INTO plans (id, key, name, max_products_per_month, monthly_price, first_month_price, description)
+      VALUES (@id, @key, @name, @max_products_per_month, @monthly_price, @first_month_price, @description)
+      ON CONFLICT(id) DO UPDATE SET
+        key = excluded.key, name = excluded.name, max_products_per_month = excluded.max_products_per_month,
+        monthly_price = excluded.monthly_price, first_month_price = excluded.first_month_price,
+        description = excluded.description
+    `);
+    upsertPlan.run({ id: 1, key: 'free', name: 'Free', max_products_per_month: 5, monthly_price: 0, first_month_price: 0, description: 'Perfect for trying out' });
+    upsertPlan.run({ id: 2, key: 'starter', name: 'Starter', max_products_per_month: 20, monthly_price: 19.99, first_month_price: 5, description: 'For small stores' });
+    upsertPlan.run({ id: 3, key: 'pro', name: 'Pro', max_products_per_month: 50, monthly_price: 39.99, first_month_price: 5, description: 'For growing businesses' });
+    upsertPlan.run({ id: 4, key: 'premium', name: 'Premium', max_products_per_month: 200, monthly_price: 79.99, first_month_price: 5, description: 'For large operations' });
+    console.log('✅ Plans table ready');
+
+    // One row per search/analyze action a user performs — the running total behind
+    // users.monthly_usage_count, kept as an append-only log for the admin stats endpoint.
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS usage_events (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER REFERENCES users(id),
+        action_type TEXT NOT NULL,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    console.log('✅ Usage events table ready');
+
+    // Audit trail for plan changes — Stripe checkout lifecycle events once configured,
+    // manual admin-set changes, and self-service change-plan calls in the meantime.
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS subscription_events (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER REFERENCES users(id),
+        event_type TEXT NOT NULL,
+        from_plan TEXT,
+        to_plan TEXT,
+        stripe_session_id TEXT,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    addColumnIfMissing('subscription_events', 'amount_charged REAL', 'amount_charged');
+    console.log('✅ Subscription events table ready');
+
+    // Deliberately minimal — no delivery log, no HMAC secret/retries. A single
+    // fire-and-forget POST per registered webhook is enough for this scope.
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS webhooks (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER REFERENCES users(id),
+        url TEXT NOT NULL,
+        event_types TEXT NOT NULL DEFAULT '["*"]',
+        is_active INTEGER NOT NULL DEFAULT 1,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    console.log('✅ Webhooks table ready');
 
     console.log('🎉 Database initialized successfully!');
   } catch (error) {

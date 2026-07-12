@@ -2,6 +2,7 @@ const express = require('express');
 const bcryptjs = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const db = require('../database.js');
+const { requireAuth } = require('../middleware/auth.js');
 
 const router = express.Router();
 
@@ -23,11 +24,20 @@ router.post('/register', async (req, res) => {
       return res.status(409).json({ success: false, message: 'User exists' });
     }
 
-    const hashedPassword = await bcryptjs.hash(password, 10);
-    const insert = db.prepare('INSERT INTO users (name, email, password, created_at) VALUES (?, ?, ?, ?)');
-    const result = insert.run(name, email, hashedPassword, new Date().toISOString());
+    const isFirstUser = db.prepare('SELECT COUNT(*) as c FROM users').get().c === 0;
+    const role = isFirstUser ? 'admin' : 'user';
 
-    res.status(201).json({ success: true, message: 'Registered', userId: result.lastInsertRowid });
+    const hashedPassword = await bcryptjs.hash(password, 10);
+    const insert = db.prepare('INSERT INTO users (name, email, password, role, created_at) VALUES (?, ?, ?, ?, ?)');
+    const result = insert.run(name, email, hashedPassword, role, new Date().toISOString());
+
+    const token = jwt.sign({ userId: result.lastInsertRowid, email }, JWT_SECRET, { expiresIn: '7d' });
+
+    res.status(201).json({
+      success: true,
+      token,
+      user: { id: result.lastInsertRowid, name, email, role },
+    });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
   }
@@ -56,10 +66,16 @@ router.post('/login', async (req, res) => {
 
     const token = jwt.sign({ userId: user.id, email: user.email }, JWT_SECRET, { expiresIn: '7d' });
 
-    res.json({ success: true, token, user: { id: user.id, name: user.name, email: user.email } });
+    res.json({ success: true, token, user: { id: user.id, name: user.name, email: user.email, role: user.role } });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
   }
+});
+
+// Current user (session validation) — the frontend calls this on app load to confirm a
+// stored token is still valid and to refresh role/plan after an admin change.
+router.get('/me', requireAuth, (req, res) => {
+  res.json({ success: true, user: req.user });
 });
 
 module.exports = router;
